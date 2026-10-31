@@ -30,6 +30,11 @@
 6. **Статистические политики агентов**: вместо эвристик «N шагов и скор» —
    anytime-valid критерий на каждом продолжении действия
    (perpetual traversal).
+7. **Дерево выводов (statistical branch-and-bound)**: решение задачи от «дано»
+   к ответу; узел — промежуточное состояние, ребро — «продолжать ли ветку».
+   «Я делаю слишком сложно, надо было делать что-то другое» = CUSUM-детектор
+   смены режима приростов прогресса + нарушение inequality стоимости ожидания
+   до успеха относительно сиблингов. См. `docs/ADR-002-traversal-as-conjecture-lifecycle.md`.
 
 Прикладные интерпретации живут **не здесь**, а в слое
 `sequentialist-search` (отдельный репозиторий-обвязка).
@@ -39,10 +44,10 @@
 ```
 src/sequential_search/
 ├── core/            # онтология графа
-│   ├── node.py      # Node protocol, Observation, EvidenceState
+│   ├── node.py      # Node protocol, Observation, EvidenceState, canonical_key
 │   ├── edge.py      # Edge, StoppingDecision
-│   ├── graph.py     # SearchGraph (tree/DAG), динамическое раскрытие узлов
-│   └── traversal.py # Traversal: finite и perpetual режимы, чекпоинты
+│   ├── graph.py     # SearchGraph: DAG с merging узлов, динамическое раскрытие
+│   └── traversal.py # Traversal: finite / perpetual / resumable, чекпоинты
 ├── stats/           # математика (тонкие обёртки над sequential-analysis)
 │   ├── procedure.py # Procedure adapter (SPRT, mSPRT, group-sequential…)
 │   ├── evidence.py  # e-values, likelihood ratios, накопление улик
@@ -51,13 +56,14 @@ src/sequential_search/
 ├── policy/          # выбор следующего узла
 │   ├── base.py
 │   ├── exhaustive.py    # полный DFS/BFS — базовый рабочий случай
-│   ├── bandit.py        # распределение бюджета (info per cost)
+│   ├── bandit.py        # распределение бюджета (info per cost, VOI lower bound)
 │   └── budget.py        # resource-aware: стоимость узлов ∈ бюджет
 ├── interpreters/    # эталонные mappings «граф ↔ задача» (минимальные)
 │   ├── hypotheses.py
 │   ├── sampling.py
 │   ├── pipeline.py
-│   └── hierarchy.py     # томография/пирамиды: coarse-to-fine
+│   ├── hierarchy.py     # томография/пирамиды: coarse-to-fine
+│   └── inference.py     # дерево выводов: proof search / стат. branch-and-bound
 └── io/              # сериализация, чекпоинты (формат совместим с sequential-analysis)
 ```
 
@@ -71,6 +77,9 @@ src/sequential_search/
    воспроизводимо (RNG-семантика наследуется).
 4. **Cost-awareness**: `Node.cost` участвует в политике; гарантию α не
    нарушает ни одна стратегия выбора следующего узла.
+5. **No double counting**: граф — DAG; повторный вход в канонически тот же
+   узел не создаёт нового эксперимента и не удваивает накопленные улики
+   (иначе множественность проверок скрывается и инвариант 1 ломается).
 
 ## Статус
 
