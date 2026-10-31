@@ -1,0 +1,498 @@
+From 62ae98a89a6adb1f919121a9318197689c7fad9d Mon Sep 17 00:00:00 2001
+From: "qwen.ai[bot]" <qwenlm-intl@service.alibaba.com>
+Date: Sat, 31 Oct 2026 20:35:03 +0000
+Subject: [PATCH 7/9] =?UTF-8?q?ADR-006=20+=20=D0=BA=D0=BE=D0=BD=D1=82?=
+ =?UTF-8?q?=D1=80=D0=B0=D0=BA=D1=82=20WITHDRAW/RESUME:=20E4=20(=D0=BF?=
+ =?UTF-8?q?=D1=80=D0=B0=D0=B2=D0=B8=D0=BB=D0=BE=20=D0=BD=D0=B5=20=D0=BF?=
+ =?UTF-8?q?=D0=BE=D1=80=D0=BE=D0=B6=D0=B4=D0=B0=D0=B5=D1=82=20cost-side=20?=
+ =?UTF-8?q?=D1=80=D0=B5=D1=88=D0=B5=D0=BD=D0=B8=D1=8F),=20Budgets.reserve/?=
+ =?UTF-8?q?refund=20(B1/B2),=20=D1=82=D0=B5=D1=81=D1=82=D1=8B;=20README:?=
+ =?UTF-8?q?=20=D0=B8=D0=BD=D0=B2=D0=B0=D1=80=D0=B8=D0=B0=D0=BD=D1=82=D1=8B?=
+ =?UTF-8?q?=206-7,=20=D1=81=D1=82=D0=B0=D1=82=D1=83=D1=81=20=D0=B8=20?=
+ =?UTF-8?q?=D1=87=D0=B5=D1=81=D1=82=D0=BD=D0=B0=D1=8F=20=D0=BF=D1=80=D0=B0?=
+ =?UTF-8?q?=D0=B2=D0=BA=D0=B0=20=D0=BF=D1=80=D0=BE=20spec-=D1=84=D0=B0?=
+ =?UTF-8?q?=D0=B9=D0=BB?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ README.md                                     |  41 +++++-
+ ...-006-resumable-search-and-known-partner.md | 125 ++++++++++++++++++
+ src/sequential_search/core/edge.py            |  44 +++++-
+ src/sequential_search/policy/base.py          |  76 ++++++++++-
+ tests/test_decision_contract.py               |  91 +++++++++++++
+ 5 files changed, 367 insertions(+), 10 deletions(-)
+ create mode 100644 docs/ADR-006-resumable-search-and-known-partner.md
+ create mode 100644 tests/test_decision_contract.py
+
+diff --git a/README.md b/README.md
+index 7e8df19..5b49847 100644
+--- a/README.md
++++ b/README.md
+@@ -48,7 +48,15 @@
+    обеих сторон. «Учитывая обстоятельства, нужно встать» — исход `WITHDRAW`,
+    отличный от `REJECT`: остановка по исчерпанию ценности продолжения, а не по
+    опровержению гипотезы, с возвратом неизрасходованного α. ⚠️ Не выполнимо до
+-   закрытия дыр B и D. См. `docs/ADR-005-cooperative-matching-and-withdrawal.md`.
++   закрытия дыры B. См. `docs/ADR-005-cooperative-matching-and-withdrawal.md`.
++10. **Возобновление после «встать»**: у WITHDRAW есть обратный переход `RESUME`,
++    иначе политика будет бояться закрывать ветку и недоиспользует бюджет.
++    Требование к контракту: RESUME обязан восстанавливать накопленные улики, а
++    не начинать поиск заново (иначе α-резерв тратится дважды). Известная
++    стратегия партнёра vs неизвестная — разные постановки: первая даёт точную
++    гарантию (conditional power), вторая только anytime-valid верхнюю; обе
++    выражаются параметрами узла, adversarial-режим вынесен **за скоуп ядра**.
++    См. `docs/ADR-006-resumable-search-and-known-partner.md`.
+ 
+ Прикладные интерпретации живут **не здесь**, а в слое
+ `sequentialist-search` (отдельный репозиторий-обвязка).
+@@ -96,19 +104,46 @@ src/sequential_search/
+ 5. **No double counting**: граф — DAG; повторный вход в канонически тот же
+    узел не создаёт нового эксперимента и не удваивает накопленные улики
+    (иначе множественность проверок скрывается и инвариант 1 ломается).
++6. **Separation of evidence and cost** (E4): правило остановки не способно
++   породить `WITHDRAW`/`RESUME` — они выводятся из стоимости продолжения на
++   уровне traversal, а не из силы улик. Иначе «уставший тест» неотличим от
++   «опровергнутого».
++7. **Budget conservativity** (B1/B2): α резервируется под ребро и списывается
++   только при ACCEPT/REJECT; возврат не превышает резерв. Без этого `WITHDRAW`
++   печатал бы α и инвариант 1 терял смысл.
+ 
+ ## Статус
+ 
+ Проект на стадии проектирования. Принятые решения документируются как ADR
+ в `docs/`.
+ 
++**Реализовано**: слой 1 (контракты `core/node.py`, `core/edge.py`, `core/graph.py`,
++`policy/base.py`) + адаптер `stats/procedure.py` + degenerate anchor (20 tests,
++зелёные; 8 из них работают без установленного upstream — extra `[core]` автономен).
++
++**Спецификация degenerate anchor** зафиксирована кодом
++`tests/test_degenerate_anchor.py`; отдельный markdown-файл под неё не создавался
++(в более ранней сводке он был заявлен по ошибке) — считайте источником истины тест.
++
++**Порядок следующих шагов** (изменён ADR-006):
++`io/checkpoint.py` → `core/traversal.py` → `stats/error_budget.py` →
++`interpreters/hierarchy.py`. Чекпоинт идёт раньше обхода потому, что `RESUME`
++требует сохранения накопленных улик, а без него WITHDRAW невозможно сделать
++обратимым, не потеряв гарантию.
++
++**Блокирующий открытый вопрос**: формат envelope чекпоинта и его совместимость с
++`sequential-analysis` (`checkpoint()/restore()`). До его решения traversal не
++пишется.
++
+ ## Установка (когда будет опубликовано)
+ 
+ ```bash
+-pip install sequential-search
++pip install sequential-search-core        # только контракты, без upstream
++pip install sequential-search-core[full]  # + адаптеры процедур поверх sequential-analysis
+ ```
+ 
+-Зависимость: `sequential-analysis` (ядро процедур и чекпоинтинга).
++Имя `sequential-search` на PyPI может быть занято — резервуем `-core`
++(решение ADR-003, пункт 3), проверяется перед первым релизом.
+ 
+ ## Лицензия
+ AGPL-3.0 (совместимо с двойным лицензированием upstream).
+diff --git a/docs/ADR-006-resumable-search-and-known-partner.md b/docs/ADR-006-resumable-search-and-known-partner.md
+new file mode 100644
+index 0000000..6c3d877
+--- /dev/null
++++ b/docs/ADR-006-resumable-search-and-known-partner.md
+@@ -0,0 +1,125 @@
++# ADR-006: Возобновляемость поиска и известная стратегия партнёра
++
++## Статус
++Принят (2026-11-01). Дополняет ADR-005 (WITHDRAW) и ADR-004 (дыра C).
++
++## Контекст
++Два замечания, каждое из которых вскрыло дефект в зафиксированном контракте:
++
++1. **WITHDRAW вводился как конечное решение.** Но если можно «встать», то можно
++   и сесть обратно: изменились обстоятельства (пришло подтверждение с другой
++   стороны, подешевела съёмка, сменился режим среды). В ADR-005 этого исхода нет,
++   и это не опечатка — это архитектурная дыра: без RESUME WITHDRAW вынужден
++   становиться необратимым, а значит политика будет **недоиспользовать бюджет**,
++   боясь закрыться.
++2. **Кооперативный кейс смешивал два режима.** «Мы знаем стратегию партнёра» и
++   «мы её не знаем» дают разную математику, а ADR-005 трактовал их одним
++   утверждением («знание стратегии оптимизирует поиск, гарантии даёт martingale»).
++   Утверждение верно по результату, но неверно по стоимости: оно скрывает, что
++   в одном случае задача решается точно, а в другом — только с гарантией.
++
++## Решение
++
++### 1. RESUME — переход состояния, а не решение о данных
++В `Decision` добавлены `WITHDRAW` и `RESUME`, но они **не равноправны**:
++
++* `TERMINAL_DECISIONS = {ACCEPT, REJECT, WITHDRAW}` — закрывают ребро;
++* `RESUME` — возвращает уже существующее ребро/поддерево в `PENDING`.
++
++Ключевое требование: RESUME **не обнуляет накопленные улики**. Если бы он их
++обнулял, возобновление было бы новым поиском, α-резерв был бы потрачен дважды на
++одну и ту же гипотезу, и global guarantee стала бы ложной. Поэтому RESUME обязан
++адресоваться к сохранённому `EvidenceState` — отсюда прямая зависимость от слоя
++чекпоинтов (`io/`): WITHDRAW без сериализации улик физически невозможен.
++
++Отсюда пересборка плана: `io/checkpoint.py` перестает быть «пятым слоем на
++потом» и становится **предпосылкой** для traversal. Порядок: contracts →
++checkpoint envelope → traversal → error_budget.
++
++### 2. WITHDRAW порождается вне StoppingRule (закреплено кодом)
++Правило остановки отображает улики → решение о гипотезе. «Встать» — решение о
++стоимости продолжения. Это разные функции, и смешивать их нельзя: иначе тест,
++который «устал», начинает выглядеть как тест, который «увидел опровержение».
++
++Реализация — инвариант **E4**: `Edge.decide()` бросает `RuleContractError`, если
++правило вернуло WITHDRAW/RESUME. Порождающий механизм живёт уровнем выше
++(cost-to-go критерий в traversal/budget), куда эти значения приходят как вход, а
++не как выход правила.
++
++### 3. Бюджет стал резерируемым, а не тратимым
++Чтобы возврат α имел смысл, α должно резервироваться под ребро и списываться
++только при реальном terminal-исходе ACCEPT/REJECT. В `Budgets` добавлены
++`alpha_reserved` / `cost_reserved` и методы `reserve()` / `refund()` с двумя
++инвариантами:
++
++* **B1 (непревышение)** — нельзя зарезервировать больше, чем свободно;
++* **B2 (корректность возврата)** — нельзя вернуть больше, чем резервировано.
++
++B2 — защита от «печатания α»: WITHDRAW, возвращающий больше, чем было выделено,
++дал бы бесконечный бюджет и обнулил бы всякую гарантию. Именно поэтому REJECT не
++входит в `REFUNDABLE_DECISIONS`: ложное отвержение есть ошибка, за которую платит
++заранее выделенная доля.
++
++Остаётся незакрытым: при WITHDRAW резерв возвращается целиком или за вычетом
++ожидаемого ущерба? Целиком — консервативно и корректно для futility-кейса
++(гипотеза снята с рассмотрения ⇒ ошибка на ней невозможна); частичный возврат
++нужен, если ветку планируется возобновить многократно (см. п. 4).
++
++### 4. Известная стратегия партнёра — отдельный контракт, не режим политики
++Формулировка: **adversarial vs cooperative-known vs unknown-partner**.
++
++| Режим | Что есть | Гарантия | Цена ошибки |
++|---|---|---|---|
++| unknown partner | только поток наблюдений | anytime-valid e-value, работает всегда | верхняя оценка, рыхлая |
++| known strategy | детерминированная функция ответа партнёра | точная: conditional power, предвычисленный drift | точная величина |
++| adversarial | партнёр максимизирует нашу стоимость | нужна minimax-политика, **не покрыта ядром** | регрет |
++
++Следствие для архитектуры: различие живёт в **параметрах узла**, а не в новом
++механизме. Узел `(наша ручка, модель партнёра)` против узла `(наша ручка)` — это
++разное пространство поиска над одними и теми же примитивами. Проверка
++«известна ли стратегия» = проверка «является ли ответ партнёра функцией от наших
++действий или внешним шумом». Новая математика не требуется ни в первых двух
++строках; третья (adversarial) требует — и она сознательно **вне скоупа ядра**,
++потому что регретная гарантия не выражается через α-бюджет.
++
++Это же объясняет, почему кейсы 8–9 не тянут на библиотеку `sequential-games`:
++кооперативный и unknown-режимы выражаются ядром, а adversarial — не выражается,
++но и не является *sequential statistical testing*. Для него ядро остаётся
++библиотекой компонентов (e-values, бюджеты, чекпоинты), а не основой.
++
++### 5. Матрица достаточности — дополнение
++| Кейс | Требуется | Слой | Статус |
++|---|---|---|---|
++| 9''''. Возобновить поиск после WITHDRAW | RESUME + сохранение улик | core/edge + io | **закрыто контрактом, ждёт io/** |
++| 9''.futility при известной стратегии | точный conditional power вместо верхней оценки | stats/procedure | открыто (не блокирует) |
++| 10. Adversarial partner | minimax/regret | — | **вне скоупа ядра** |
++
++## Следствия для кода
++1. `Decision` расширен; `threshold_rule` WITHDRAW не порождает (тест
++   `test_threshold_rule_never_emits_withdraw_or_resume`).
++2. `Edge.decide()` проверяет E4 — breaking change отсутствует: старые правила
++   продолжают работать, новые нарушения ловятся сразу.
++3. `Budgets.reserve/refund` реализованы; **потребителя пока нет** — вызов появится
++   вместе с traversal. Тесты фиксируют только алгебру бюджета.
++4. `core/traversal.py` обязан различать «остановлен по бюджету» и «WITHDRAW»
++   (докстринг `Policy.next_node` обновлён).
++5. План меняется: `io/checkpoint.py` **до** traversal.
++
++## Честные ограничения
++* Алгебра резервирования написана, но её связь с конкретным α-spending планом не
++  показана: не доказано, что refund-then-re-reserve сохраняет FWER ≤ α при
++  повторных WITHDRAW одного и того же ребра. Нужен property-тест, а он возможен
++  только после error_budget. Сейчас B1/B2 — необходимые, но не достаточные.
++* «RESUME не обнуляет улики» зафиксировано как требование, но не проверено:
++  формат хранения EvidenceState ещё не определён (открытый вопрос ADR-003 про
++  совместимость с upstream чекпоинтами теперь блокирующий).
++* Partial refund (п. 3) оставлен открытым сознательно: выбор между полным и
++  частичным возвратом меняет семантику whole-graph α, а не детали реализации.
++* Adversarial-режим исключён из скоупа по аргументу «regret ≠ α», но формально
++  это не доказательство, а рамка: если понадобится anytime-valid регрет, ядро
++  придётся расширять.
++
++## Что остаётся открытым
++- Формат envelope чекпоинта (теперь блокирует traversal).
++- Полный vs частичный refund при повторяющихся WITHDRAW.
++- Как именно в `dependency_scope` кодируется «общая цель двух агентов» (из ADR-005).
+diff --git a/src/sequential_search/core/edge.py b/src/sequential_search/core/edge.py
+index 639fc86..5b186d2 100644
+--- a/src/sequential_search/core/edge.py
++++ b/src/sequential_search/core/edge.py
+@@ -9,8 +9,15 @@
+       по таймауту (кейс 6, perpetual traversal).
+   E3  Классический бинарный тест — это Edge с одним источником улик и двумя
+       непустыми исходами. Special-case в коде запрещён: он получается
+-      параметризацией (спецификация — tests/test_degenerate_anchor.py,
+-      см. ADR-003 следствие 1).
++      параметризацией (спецификация зафиксирована кодом
++      tests/test_degenerate_anchor.py; файл docs/spec-degenerate-anchor.md
++      был обещан в ADR-003 следствие 1, но не создан — см. примечание там же).
++  E4  WITHDRAW существует в контракте, но не может быть порождём ни одним
++      встроенным правилом (ADR-005, дыра D). Порождающий его механизм —
++      cost-to-go критерий на уровне traversal/budget, а не StoppingRule:
++      решение «встать» принимается по стоимости продолжения, а не по силе
++      улик. Попытка вернуть WITHDRAW из правила — ошибка программы, поэтому
++      Edge.decide() её перехватывает.
+ """
+ from __future__ import annotations
+ 
+@@ -23,6 +30,26 @@ class Decision(str, Enum):
+     ACCEPT = "accept"
+     REJECT = "reject"
+     PENDING = "pending"
++    WITHDRAW = "withdraw"
++    RESUME = "resume"
++
++
++#: Терминальные исхода ребра. RESUME терминальным не является: это возвращение
++#: в PENDING (ADR-006), поэтому он отсутствует в этом множестве.
++TERMINAL_DECISIONS: frozenset[Decision] = frozenset(
++    {Decision.ACCEPT, Decision.REJECT, Decision.WITHDRAW}
++)
++
++#: Исходы, при которых доля α, выделенная на ребро, может быть возвращена в
++#: общий пул (ADR-005 следствие 2, ADR-006). REJECT её не возвращает: ложное
++#: отвержение — это и есть ошибка, за которую бюджет платит заранее.
++REFUNDABLE_DECISIONS: frozenset[Decision] = frozenset(
++    {Decision.WITHDRAW}
++)
++
++
++class RuleContractError(RuntimeError):
++    """StoppingRule вернул исход, который ему порождать запрещено (E4)."""
+ 
+ 
+ @dataclass(frozen=True)
+@@ -47,7 +74,12 @@ class EvidenceState:
+ 
+ @runtime_checkable
+ class StoppingRule(Protocol):
+-    """Чистое отображение улик -> решение (E1)."""
++    """Чистое отображение улик -> решение (E1).
++
++    Запрещено возвращать WITHDRAW/RESUME: первый порождается только
++    cost-to-go критерием вне правила, второй — только внешним событием
++    возобновления (E4).
++    """
+ 
+     def decide(self, evidence: EvidenceState) -> Decision:
+         ...
+@@ -74,6 +106,12 @@ class Edge:
+         d = self.rule.decide(evidence)
+         if not isinstance(d, Decision):
+             raise TypeError(f"edge {self.source}->{self.target}: rule returned {d!r}")
++        if d in (Decision.WITHDRAW, Decision.RESUME):
++            raise RuleContractError(
++                f"edge {self.source}->{self.target}: StoppingRule вернул {d.value}; "
++                "WITHDRAW порождается cost-to-go критерием вне правила, "
++                "RESUME — внешним событием возобновления (инвариант E4)"
++            )
+         return d
+ 
+ 
+diff --git a/src/sequential_search/policy/base.py b/src/sequential_search/policy/base.py
+index a5de80c..ecc6c53 100644
+--- a/src/sequential_search/policy/base.py
++++ b/src/sequential_search/policy/base.py
+@@ -17,16 +17,84 @@ from typing import Protocol, Sequence
+ 
+ @dataclass(frozen=True)
+ class Budgets:
+-    """Двумерный бюджет (ADR-001): риск и ресурс не конвертируются друг в друга."""
++    """Двумерный бюджет (ADR-001): риск и ресурс не конвертируются друг в друга.
+ 
+-    alpha_left: float     # оставшийся α-бюджет (e-value calibration)
+-    cost_left: float      # оставшаяся стоимость (шаги, байты, токены, секунды)
++    Оба измерения *возобновляемы* (ADR-006): WITHDRAW возвращает в пул долю α,
++    выделенную на остановленную ветку, и её же стоимость. Возврат возможен
++    только потому, что α расходуется как **резервирование** под возможную
++    ошибку на этом ребре, а не как невозвратная трата; если ребро закрыто без
++    вынесения reject/accept, резерв не использован.
++
++    Инвариант B1 (непревышение): ни одна операция не позволяет потратить больше,
++    чем было выделено — иначе global guarantee теряет смысл.
++    Инвариант B2 (корректность возврата): возврат не может превысить ранее
++    зарезервированное. Нарушение = ошибка программы, а не «улучшение плана».
++    """
++
++    alpha_left: float     # свободный α-бюджет (e-value calibration)
++    cost_left: float      # свободная стоимость (шаги, байты, токены, секунды)
++    #: сколько α и стоимости currently зарезервировано под открытые рёбра
++    alpha_reserved: float = 0.0
++    cost_reserved: float = 0.0
++
++    def __post_init__(self) -> None:
++        for name in ("alpha_left", "cost_left", "alpha_reserved", "cost_reserved"):
++            v = getattr(self, name)
++            if v < 0:
++                raise ValueError(f"Budgets.{name} must be non-negative, got {v}")
++
++    @property
++    def alpha_total(self) -> float:
++        return self.alpha_left + self.alpha_reserved
++
++    @property
++    def cost_total(self) -> float:
++        return self.cost_left + self.cost_reserved
+ 
+     def can_afford(self, cost: float) -> bool:
+         return cost <= self.cost_left + 1e-12
+ 
++    def reserve(self, alpha: float, cost: float) -> "Budgets":
++        """Выделить α и стоимость под ребро/узел. Непревышение — B1."""
++        if alpha > self.alpha_left + 1e-12:
++            raise ValueError(
++                f"reserve(alpha={alpha}) exceeds alpha_left={self.alpha_left} (B1)"
++            )
++        if cost > self.cost_left + 1e-12:
++            raise ValueError(
++                f"reserve(cost={cost}) exceeds cost_left={self.cost_left} (B1)"
++            )
++        return Budgets(
++            alpha_left=self.alpha_left - alpha,
++            cost_left=self.cost_left - cost,
++            alpha_reserved=self.alpha_reserved + alpha,
++            cost_reserved=self.cost_reserved + cost,
++        )
++
++    def refund(self, alpha: float, cost: float) -> "Budgets":
++        """Вернуть неизрасходованное в пул (семантика WITHDRAW). Ограничено B2."""
++        if alpha > self.alpha_reserved + 1e-12:
++            raise ValueError(
++                f"refund(alpha={alpha}) exceeds alpha_reserved={self.alpha_reserved} (B2)"
++            )
++        if cost > self.cost_reserved + 1e-12:
++            raise ValueError(
++                f"refund(cost={cost}) exceeds cost_reserved={self.cost_reserved} (B2)"
++            )
++        return Budgets(
++            alpha_left=self.alpha_left + alpha,
++            cost_left=self.cost_left + cost,
++            alpha_reserved=self.alpha_reserved - alpha,
++            cost_reserved=self.cost_reserved - cost,
++        )
++
+ 
+ class Policy(Protocol):
+     def next_node(self, frontier: Sequence[str], budgets: Budgets) -> str | None:
+-        """Вернуть ключ узла или None (остановка). Не должен ничего накапливать."""
++        """Вернуть ключ узла или None (остановка по бюджету). Ничего не накапливает.
++
++        Остановка по `None` — это НЕ вывод о данных: это конец обхода из-за
++        кончившегося бюджета. Не путать с WITHDRAW (решение отказаться от
++        ветки, пока бюджет ещё есть) — ADR-005/006.
++        """
+         ...
+diff --git a/tests/test_decision_contract.py b/tests/test_decision_contract.py
+new file mode 100644
+index 0000000..65213d2
+--- /dev/null
++++ b/tests/test_decision_contract.py
+@@ -0,0 +1,91 @@
++"""Контракт четвёртого/пятого исхода (ADR-005 дыра D, ADR-006).
++
++Спецификация, а не набор проверок «на всякий случай». Три утверждения, которые
++нельзя нарушить без потери смысла WITHDRAW/RESUME:
++
++1. StoppingRule физически не способен породить WITHDRAW/RESUME. Это граница
++   ответственности: улики решают про гипотезу, стоимость решает про игру.
++2. WITHDRAW — терминальный, RESUME — нет. Если RESUME станет терминальным,
++   возобновление превратится в новый поиск с обнулёнными уликами.
++3. Возврат α возможен ровно в пределах зарезервированного. Иначе бюджет
++   печатает α из воздуха и global guarantee ложна.
++"""
++from __future__ import annotations
++
++import pytest
++
++from sequential_search.core.edge import (
++    Decision,
++    Edge,
++    EvidenceState,
++    RuleContractError,
++    TERMINAL_DECISIONS,
++    threshold_rule,
++)
++from sequential_search.policy.base import Budgets
++
++
++class _BadRule:
++    """Правило-нарушитель: пытается решить про стоимость через улики."""
++
++    def __init__(self, verdict: Decision) -> None:
++        self._verdict = verdict
++
++    def decide(self, evidence: EvidenceState) -> Decision:
++        return self._verdict
++
++
++def _edge(rule) -> Edge:
++    return Edge(source="a", target="b", rule=rule)
++
++
++@pytest.mark.parametrize("verdict", [Decision.WITHDRAW, Decision.RESUME])
++def test_rule_cannot_produce_cost_side_decisions(verdict: Decision) -> None:
++    e = _edge(_BadRule(verdict))
++    with pytest.raises(RuleContractError):
++        e.decide(EvidenceState(e=1.0))
++
++
++def test_threshold_rule_never_emits_withdraw_or_resume() -> None:
++    rule = threshold_rule(upper=10.0, lower=0.1)
++    seen = {rule.decide(EvidenceState(e=x)) for x in (0.01, 0.5, 3.0, 99.0)}
++    assert seen <= {Decision.ACCEPT, Decision.REJECT, Decision.PENDING}
++
++
++def test_terminal_membership() -> None:
++    assert Decision.WITHDRAW in TERMINAL_DECISIONS
++    assert Decision.RESUME not in TERMINAL_DECISIONS
++    assert Decision.PENDING not in TERMINAL_DECISIONS
++
++
++def test_reserve_then_refund_is_conservative() -> None:
++    b = Budgets(alpha_left=0.05, cost_left=100.0)
++    b2 = b.reserve(alpha=0.01, cost=30.0)
++    assert b2.alpha_total == pytest.approx(0.05)
++    assert b2.cost_total == pytest.approx(100.0)
++    b3 = b2.refund(alpha=0.01, cost=30.0)
++    assert b3.alpha_left == pytest.approx(0.05)
++    assert b3.cost_left == pytest.approx(100.0)
++    assert b3.alpha_reserved == pytest.approx(0.0)
++
++
++def test_overreserve_rejected_b1() -> None:
++    b = Budgets(alpha_left=0.05, cost_left=100.0)
++    with pytest.raises(ValueError, match="B1"):
++        b.reserve(alpha=0.06, cost=1.0)
++    with pytest.raises(ValueError, match="B1"):
++        b.reserve(alpha=0.01, cost=101.0)
++
++
++def test_overrefund_rejected_b2() -> None:
++    """WITHDRAW не может напечатать α — ровно то, ради чего введено reserved."""
++    b = Budgets(alpha_left=0.04, cost_left=70.0, alpha_reserved=0.01, cost_reserved=30.0)
++    with pytest.raises(ValueError, match="B2"):
++        b.refund(alpha=0.02, cost=0.0)
++    with pytest.raises(ValueError, match="B2"):
++        b.refund(alpha=0.0, cost=31.0)
++
++
++def test_negative_budget_invalid() -> None:
++    with pytest.raises(ValueError):
++        Budgets(alpha_left=-0.01, cost_left=1.0)
+-- 
+2.39.5
+

@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: sequential-search-core
+Version: 0.0.1
+Summary: Математическое ядро последовательного принятия статистических решений при обходе графа
+License: AGPL-3.0-or-later
+Requires-Python: >=3.11
+Provides-Extra: full
+Requires-Dist: sequential-analysis<0.5,>=0.4; extra == "full"
+Provides-Extra: dev
+Requires-Dist: pytest>=8; extra == "dev"
+Requires-Dist: hypothesis>=6; extra == "dev"
