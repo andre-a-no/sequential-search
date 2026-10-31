@@ -9,7 +9,8 @@
       по таймауту (кейс 6, perpetual traversal).
   E3  Классический бинарный тест — это Edge с одним источником улик и двумя
       непустыми исходами. Special-case в коде запрещён: он получается
-      параметризацией (degenerate anchor, tests/spec_degenerate_anchor.md).
+      параметризацией (спецификация — tests/test_degenerate_anchor.py,
+      см. ADR-003 следствие 1).
 """
 from __future__ import annotations
 
@@ -54,12 +55,20 @@ class StoppingRule(Protocol):
 
 @dataclass(frozen=True)
 class Edge:
-    """Ребро = пара (правило остановки, семантическая метка направления)."""
+    """Ребро = пара (правило остановки, семантическая метка направления).
+
+    `dependency_scope` — зарезервированное поле (ADR-004, дыра A): идентификатор
+    среды/источника, наблюдения внутри которого коррелированы. Семантика пока
+    не определена и на решения не влияет; поле введено сейчас, чтобы появление
+    калибровки бюджета под зависимые проверки не ломало контракт. Пустая строка
+    означает «независимое ребро» (текущее поведение по умолчанию).
+    """
 
     source: str
     target: str
     rule: StoppingRule
     label: str = ""
+    dependency_scope: str = ""
 
     def decide(self, evidence: EvidenceState) -> Decision:
         d = self.rule.decide(evidence)
