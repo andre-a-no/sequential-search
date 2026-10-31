@@ -9,8 +9,15 @@
       по таймауту (кейс 6, perpetual traversal).
   E3  Классический бинарный тест — это Edge с одним источником улик и двумя
       непустыми исходами. Special-case в коде запрещён: он получается
-      параметризацией (спецификация — tests/test_degenerate_anchor.py,
-      см. ADR-003 следствие 1).
+      параметризацией (спецификация зафиксирована кодом
+      tests/test_degenerate_anchor.py; файл docs/spec-degenerate-anchor.md
+      был обещан в ADR-003 следствие 1, но не создан — см. примечание там же).
+  E4  WITHDRAW существует в контракте, но не может быть порождём ни одним
+      встроенным правилом (ADR-005, дыра D). Порождающий его механизм —
+      cost-to-go критерий на уровне traversal/budget, а не StoppingRule:
+      решение «встать» принимается по стоимости продолжения, а не по силе
+      улик. Попытка вернуть WITHDRAW из правила — ошибка программы, поэтому
+      Edge.decide() её перехватывает.
 """
 from __future__ import annotations
 
@@ -23,6 +30,26 @@ class Decision(str, Enum):
     ACCEPT = "accept"
     REJECT = "reject"
     PENDING = "pending"
+    WITHDRAW = "withdraw"
+    RESUME = "resume"
+
+
+#: Терминальные исхода ребра. RESUME терминальным не является: это возвращение
+#: в PENDING (ADR-006), поэтому он отсутствует в этом множестве.
+TERMINAL_DECISIONS: frozenset[Decision] = frozenset(
+    {Decision.ACCEPT, Decision.REJECT, Decision.WITHDRAW}
+)
+
+#: Исходы, при которых доля α, выделенная на ребро, может быть возвращена в
+#: общий пул (ADR-005 следствие 2, ADR-006). REJECT её не возвращает: ложное
+#: отвержение — это и есть ошибка, за которую бюджет платит заранее.
+REFUNDABLE_DECISIONS: frozenset[Decision] = frozenset(
+    {Decision.WITHDRAW}
+)
+
+
+class RuleContractError(RuntimeError):
+    """StoppingRule вернул исход, который ему порождать запрещено (E4)."""
 
 
 @dataclass(frozen=True)
@@ -47,7 +74,12 @@ class EvidenceState:
 
 @runtime_checkable
 class StoppingRule(Protocol):
-    """Чистое отображение улик -> решение (E1)."""
+    """Чистое отображение улик -> решение (E1).
+
+    Запрещено возвращать WITHDRAW/RESUME: первый порождается только
+    cost-to-go критерием вне правила, второй — только внешним событием
+    возобновления (E4).
+    """
 
     def decide(self, evidence: EvidenceState) -> Decision:
         ...
@@ -74,6 +106,12 @@ class Edge:
         d = self.rule.decide(evidence)
         if not isinstance(d, Decision):
             raise TypeError(f"edge {self.source}->{self.target}: rule returned {d!r}")
+        if d in (Decision.WITHDRAW, Decision.RESUME):
+            raise RuleContractError(
+                f"edge {self.source}->{self.target}: StoppingRule вернул {d.value}; "
+                "WITHDRAW порождается cost-to-go критерием вне правила, "
+                "RESUME — внешним событием возобновления (инвариант E4)"
+            )
         return d
 
 
