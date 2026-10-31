@@ -1,6 +1,6 @@
 """Adapter: sequential-analysis Procedure -> Node + EvidenceState (ADR-003, layer 2).
 
-This is the only place in the kernel that knows about the upstream package. The
+This is the only module allowed to know about the upstream package (ADR-008 D1). The
 adapter is thin: it does not implement statistics, it wires the node contract to
 the Run contract.
 
@@ -20,7 +20,7 @@ class ProcedureNode:
     """An experiment node over a sequential-analysis sequential procedure.
 
     Implements the graph.node.Node protocol. Constructed lazily: the Run itself
-    is created on the first step, so importing the kernel does not require the
+    is created on the first step, so importing this package does not require the
     heavy upstream package.
     """
 
@@ -103,7 +103,7 @@ class ProcedureNode:
 
 
 def _exp_if_finite(x: float | None) -> float:
-    """log LR -> e-value with overflow protection (the kernel's e-currency)."""
+    """log LR -> e-value with overflow protection (the math layer's e-currency)."""
     import math
 
     if x is None:

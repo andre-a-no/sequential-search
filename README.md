@@ -6,10 +6,11 @@ It inherits the problem setting of
 it from a flat stream of observations onto a graph: every traversal is a stream
 of experiments, and every edge is a statistical decision.
 
-The name says what this is *not*: it is not `sequentialist-search` (the
-interpretation layer on top), and it is not a "core" — the core procedures live
-upstream. What distinguishes it is that decisions are taken **sequentially**,
-along a traversal; a classical binary test appears only as a degenerate case.
+The name says what this is *not*: it is not the interpretation layer built on
+top of it (`sequentialist-core`, `sequentialist-visuals`), and it is not a
+"core" — the core procedures live upstream in `sequential-analysis`. What
+distinguishes it is that decisions are taken **sequentially**, along a
+traversal; a classical binary test appears only as a degenerate case.
 
 A classical binary test (SPRT and friends) is the degenerate case of a graph
 `root → leaf` with a single edge.
@@ -22,7 +23,7 @@ A classical binary test (SPRT and friends) is the degenerate case of a graph
 | **Edge** | a stopping rule: accumulated evidence → decision `accept / reject / pending` | a boolean predicate (that is only its degenerate case) |
 | **Traversal** | a traversal policy + a global error budget (α-risk *and* resource) | a `for node in graph` loop |
 
-## Interpretations covered by the kernel
+## Interpretations the math layer must be able to express
 
 1. Filter cascades (pipeline, group-sequential).
 2. Adaptive conditioning trees (adaptive sampling designs).
@@ -46,7 +47,7 @@ A classical binary test (SPRT and friends) is the degenerate case of a graph
    we decide whether to reposition, and we pay for moving). An opponent with
    their own strategy is a degenerate case of an adaptive environment — no
    separate game library is created. ⚠️ This case is **not yet expressible on
-   the current kernel**: it exposes three gaps (observations coupled through the
+   the current math layer**: it exposes three gaps (observations coupled through the
    environment, comparing two sampling locations, perpetual + switching cost).
    See `docs/ADR-004-environment-as-adversary.md`.
 9. **Cooperative search for a shared state (sequential matching)**: transmitter
@@ -64,11 +65,40 @@ A classical binary test (SPRT and friends) is the degenerate case of a graph
     is spent twice). A known partner strategy vs. an unknown one are different
     problem settings: the first yields an exact guarantee (conditional power),
     the second only an anytime-valid upper bound; both are expressed through
-    node parameters, and adversarial mode is kept **out of the kernel scope**.
+    node parameters, and adversarial mode is kept **out of scope for the math layer**.
     See `docs/ADR-006-resumable-search-and-known-partner.md`.
 
-Applied interpretations do **not** live here, but in the `sequentialist-search`
-layer (a separate wrapper repository).
+Applied interpretations do **not** live here: they belong to the interpretation
+layer (`sequentialist-core`, `sequentialist-visuals`) and to the application
+repos built on top of it. See the dependency graph below.
+
+## Dependency graph (see `docs/ADR-008-dependency-graph.md`)
+
+```
+                    sequential-analysis          [upstream: procedures, RNG, checkpoints]
+                                 |
+                       required   |   optional ([full] extra)
+                                 v
+        SEQUENTIAL-SEARCH  (this repo)            [math layer: no domain vocabulary]
+        graph/ stats/ policy/ io/ interpreters/
+              \                      /
+               \                    /   siblings: depend on the math layer, never on each other
+                v                  v
+     sequentialist-core    sequentialist-visuals  [interpretation layer]
+     vocabulary, data      plots over traversal state,
+     connectors, DSL       replay, budget dashboards
+                \                  /
+                 \                /   application repos depend on BOTH
+                  v              v
+             applied software                   [application layer]
+```
+
+Hard rules: upstream is imported **only** inside `stats/procedure.py` (D1); this
+package imports nothing from `sequentialist-*` or any application package (D2);
+the two interpretation packages are siblings and anything they would share moves
+up here (D5). Vocabulary: *math layer* / *interpretation layer* / *application
+layer* — the words "kernel" and "core" are retired for this repo (ADR-007), since
+the core procedures live upstream.
 
 ## Package layout
 
@@ -79,7 +109,7 @@ src/sequential_search/
 │   ├── edge.py      # Edge, StoppingRule, Decision (+WITHDRAW/RESUME)
 │   ├── graph.py     # SearchGraph: DAG with node merging, dynamic expansion
 │   └── traversal.py # Traversal: finite / perpetual / resumable, checkpoints
-├── stats/           # mathematics (thin wrappers over sequential-analysis)
+├── stats/           # mathematics (adapters over sequential-analysis, [full] only)
 │   ├── procedure.py # Procedure adapter (SPRT, mSPRT, group-sequential…)
 │   ├── evidence.py  # e-values, likelihood ratios, evidence accumulation
 │   ├── error_budget.py  # offline/online FWER/FDR control, alpha-spending
@@ -100,7 +130,7 @@ src/sequential_search/
 └── io/              # serialization, checkpoints (format compatible with sequential-analysis)
 ```
 
-## Kernel invariants
+## Layer invariants
 
 1. **Global guarantee**: family-wise error ≤ α across the whole traversal, even
    when the policy adapts the order of tests (e-value calibration on edges).

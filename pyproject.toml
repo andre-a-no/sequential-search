@@ -16,5 +16,20 @@ dependencies = []
 full = ["sequential-analysis>=0.4,<0.5"]
 dev = ["pytest>=8", "hypothesis>=6"]
 
+[tool.importlinter]  # documentation of intent; CI gate is tests/test_dependency_rules.py
+root_packages = ["sequential_search"]
+
+[[tool.importlinter.contracts]]
+name = "upstream is confined to the adapter (ADR-008 D1)"
+type = "forbidden"
+source_modules = ["sequential_search.graph", "sequential_search.policy", "sequential_search.io", "sequential_search.interpreters"]
+forbidden_modules = ["sequential_analysis"]
+
+[[tool.importlinter.contracts]]
+name = "the math layer does not know the interpretation layer (ADR-008 D2)"
+type = "forbidden"
+source_modules = ["sequential_search"]
+forbidden_modules = ["sequentialist_core", "sequentialist_visuals"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
