@@ -1,0 +1,737 @@
+From 629abc1f9c8d40f825e2af6ed90abe4ec4173947 Mon Sep 17 00:00:00 2001
+From: "qwen.ai[bot]" <qwenlm-intl@service.alibaba.com>
+Date: Sat, 31 Oct 2026 20:23:47 +0000
+Subject: [PATCH 4/9] =?UTF-8?q?core+stats:=20=D0=BA=D0=BE=D0=BD=D1=82?=
+ =?UTF-8?q?=D1=80=D0=B0=D0=BA=D1=82=D1=8B=20(Node/Edge/SearchGraph/Budgets?=
+ =?UTF-8?q?),=20=D0=B0=D0=B4=D0=B0=D0=BF=D1=82=D0=B5=D1=80=20ProcedureNode?=
+ =?UTF-8?q?,=20=D0=B7=D0=B5=D0=BB=D1=91=D0=BD=D1=8B=D0=B9=20degenerate=20a?=
+ =?UTF-8?q?nchor?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- pyproject: пакет sequential-search-core, extras [full]=sequential-analysis>=0.4,<0.5, [dev]
+- core/node.py: Observation + Node protocol + check_node (инварианты N1-N3)
+- core/edge.py: Decision/EvidenceState/StoppingRule/Edge/threshold_rule (E1-E3)
+- core/graph.py: SearchGraph — DAG с canonical_key дедупликацией, expand(), is_degenerate()
+- policy/base.py: Budgets (двумерный α+ресурс), Policy protocol, определение guarantee-invariant
+- stats/procedure.py: ProcedureNode поверх Run из sequential-analysis; wald_thresholds в e-валюте
+- tests/test_degenerate_anchor.py: 4 теста, пошаговое совпадение llr/decision/terminal с standalone SPRT + checkpoint roundtrip
+- tests/test_graph_core.py: 8 тестов слоя контрактов, работают без upstream
+- 12 passed
+---
+ .gitignore                               |   7 ++
+ pyproject.toml                           |  19 ++++
+ src/sequential_search/__init__.py        |   7 ++
+ src/sequential_search/core/__init__.py   |   0
+ src/sequential_search/core/edge.py       |  90 ++++++++++++++++
+ src/sequential_search/core/graph.py      |  69 ++++++++++++
+ src/sequential_search/core/node.py       |  76 +++++++++++++
+ src/sequential_search/io/__init__.py     |   0
+ src/sequential_search/policy/__init__.py |   0
+ src/sequential_search/policy/base.py     |  32 ++++++
+ src/sequential_search/stats/__init__.py  |   0
+ src/sequential_search/stats/procedure.py | 130 +++++++++++++++++++++++
+ tests/test_degenerate_anchor.py          |  97 +++++++++++++++++
+ tests/test_graph_core.py                 |  83 +++++++++++++++
+ 14 files changed, 610 insertions(+)
+ create mode 100644 .gitignore
+ create mode 100644 pyproject.toml
+ create mode 100644 src/sequential_search/__init__.py
+ create mode 100644 src/sequential_search/core/__init__.py
+ create mode 100644 src/sequential_search/core/edge.py
+ create mode 100644 src/sequential_search/core/graph.py
+ create mode 100644 src/sequential_search/core/node.py
+ create mode 100644 src/sequential_search/io/__init__.py
+ create mode 100644 src/sequential_search/policy/__init__.py
+ create mode 100644 src/sequential_search/policy/base.py
+ create mode 100644 src/sequential_search/stats/__init__.py
+ create mode 100644 src/sequential_search/stats/procedure.py
+ create mode 100644 tests/test_degenerate_anchor.py
+ create mode 100644 tests/test_graph_core.py
+
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..801f218
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,7 @@
++__pycache__/
++*.pyc
++.pytest_cache/
++*.egg-info/
++build/
++dist/
++.venv/
+diff --git a/pyproject.toml b/pyproject.toml
+new file mode 100644
+index 0000000..8dc0641
+--- /dev/null
++++ b/pyproject.toml
+@@ -0,0 +1,19 @@
++[build-system]
++requires = ["setuptools>=68"]
++build-backend = "setuptools.build_meta"
++
++[project]
++name = "sequential-search-core"
++version = "0.0.1"
++description = "Математическое ядро последовательного принятия статистических решений при обходе графа"
++requires-python = ">=3.11"
++license = { text = "AGPL-3.0-or-later" }
++dependencies = []
++
++[project.optional-dependencies]
++# Контракты + тесты вырожденного случая работают без тяжёлого upstream (ADR-003, следствие 2)
++full = ["sequential-analysis>=0.4,<0.5"]
++dev = ["pytest>=8", "hypothesis>=6"]
++
++[tool.setuptools.packages.find]
++where = ["src"]
+diff --git a/src/sequential_search/__init__.py b/src/sequential_search/__init__.py
+new file mode 100644
+index 0000000..a5bd6a8
+--- /dev/null
++++ b/src/sequential_search/__init__.py
+@@ -0,0 +1,7 @@
++"""sequential-search: математическое ядро обхода графа со статистическими решениями.
++
++См. docs/ADR-001..003. Пакет намеренно не содержит предметных интерпретаций —
++они живут в sequentialist-search.
++"""
++
++__version__ = "0.0.1"
+diff --git a/src/sequential_search/core/__init__.py b/src/sequential_search/core/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/sequential_search/core/edge.py b/src/sequential_search/core/edge.py
+new file mode 100644
+index 0000000..24589ce
+--- /dev/null
++++ b/src/sequential_search/core/edge.py
+@@ -0,0 +1,90 @@
++"""Ребро графа = stopping rule (ADR-001). Булев предикат — вырожденный случай.
++
++Инварианты:
++  E1  decide() чиста: решение зависит только от накопленных улик и порога,
++      переданных аргументами, а не от порядка обхода или истории политики.
++      Иначе global guarantee (инвариант 1 README) недоказуем.
++  E2  Три исхода: accept / reject / pending. pending допускает сколь угодно
++      длинное накопление — anytime-valid ребро никогда не «заканчивается»
++      по таймауту (кейс 6, perpetual traversal).
++  E3  Классический бинарный тест — это Edge с одним источником улик и двумя
++      непустыми исходами. Special-case в коде запрещён: он получается
++      параметризацией (degenerate anchor, tests/spec_degenerate_anchor.md).
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from enum import Enum
++from typing import Any, Protocol, runtime_checkable
++
++
++class Decision(str, Enum):
++    ACCEPT = "accept"
++    REJECT = "reject"
++    PENDING = "pending"
++
++
++@dataclass(frozen=True)
++class EvidenceState:
++    """Накопленные улики ребра. Валюта — e-value (ADR-003, слой 2).
++
++    `e` >= 1 трактуется как сила улик против null; `stat` хранит исходную
++    величину процедуры (log LR для SPRT и т.п.) для совместимости с
++    чекпоинтами sequential-analysis.
++    """
++
++    e: float
++    stat: Any = None
++    n: int = 0
++
++    def __post_init__(self) -> None:
++        if self.e < 0:
++            raise ValueError(f"EvidenceState.e must be non-negative, got {self.e}")
++        if self.n < 0:
++            raise ValueError(f"EvidenceState.n must be non-negative, got {self.n}")
++
++
++@runtime_checkable
++class StoppingRule(Protocol):
++    """Чистое отображение улик -> решение (E1)."""
++
++    def decide(self, evidence: EvidenceState) -> Decision:
++        ...
++
++
++@dataclass(frozen=True)
++class Edge:
++    """Ребро = пара (правило остановки, семантическая метка направления)."""
++
++    source: str
++    target: str
++    rule: StoppingRule
++    label: str = ""
++
++    def decide(self, evidence: EvidenceState) -> Decision:
++        d = self.rule.decide(evidence)
++        if not isinstance(d, Decision):
++            raise TypeError(f"edge {self.source}->{self.target}: rule returned {d!r}")
++        return d
++
++
++def threshold_rule(upper: float, lower: float | None) -> "_ThresholdRule":
++    """Каноническое правило: e >= upper -> accept, e <= lower -> reject.
++
++    Для вырожденного случая (SPRT) вызывается с upper = exp(log((1-b)/a)),
++    lower = exp(log(b/(1-a))) — см. degenerate anchor.
++    """
++    return _ThresholdRule(upper, lower)
++
++
++@dataclass(frozen=True)
++class _ThresholdRule:
++    upper: float
++    lower: float | None
++
++    def decide(self, evidence: EvidenceState) -> Decision:
++        if evidence.e >= self.upper:
++            return Decision.ACCEPT
++        if self.lower is not None and evidence.e <= self.lower:
++            return Decision.REJECT
++        return Decision.PENDING
+diff --git a/src/sequential_search/core/graph.py b/src/sequential_search/core/graph.py
+new file mode 100644
+index 0000000..a6b9499
+--- /dev/null
++++ b/src/sequential_search/core/graph.py
+@@ -0,0 +1,69 @@
++"""SearchGraph: DAG с канонизацией узлов и динамическим раскрытием (ADR-002).
++
++Инвариант 5 README (no double counting) реализуется здесь: узел адресуется
++`canonical_key`, поэтому два разных пути вывода, приведшие к эквивалентному
++состоянию, — ОДИН эксперимент с одними накопленными уликами.
++"""
++from __future__ import annotations
++
++from collections.abc import Iterator
++
++from sequential_search.core.edge import Edge
++from sequential_search.core.node import Node, check_node
++
++
++class SearchGraph:
++    def __init__(self, root: str | None = None) -> None:
++        self._nodes: dict[str, Node] = {}
++        self._edges: dict[str, list[Edge]] = {}
++        self._root = root
++
++    # --- построение ----------------------------------------------------
++    def add_node(self, node: Node) -> str:
++        """Добавить узел или вернуть существующий по canonical_key (дедупликация)."""
++        check_node(node)
++        key = node.canonical_key()
++        if key in self._nodes and self._nodes[key] is not node:
++            # повторный вход в тот же эксперимент: улики НЕ сбрасываются и НЕ дублируются
++            return key
++        self._nodes[key] = node
++        self._edges.setdefault(key, [])
++        if self._root is None:
++            self._root = key
++        return key
++
++    def add_edge(self, edge: Edge) -> None:
++        for endpoint in (edge.source, edge.target):
++            if endpoint not in self._nodes:
++                raise KeyError(f"unknown node {endpoint!r} on edge {edge.source}->{edge.target}")
++        self._edges[edge.source].append(edge)
++
++    def expand(self, source: str, nodes: list[Node], edges: list[Edge]) -> None:
++        """Динамическое раскрытие (кейс 3: поток гипотез бесконечен)."""
++        for n in nodes:
++            self.add_node(n)
++        for e in edges:
++            self.add_edge(e)
++
++    # --- доступ --------------------------------------------------------
++    @property
++    def root(self) -> str:
++        if self._root is None:
++            raise RuntimeError("empty graph has no root")
++        return self._root
++
++    def is_degenerate(self) -> bool:
++        """Граф вырожден (= классический бинарный тест): ровно одно ребро из корня."""
++        return len(self._nodes) == 2 and len(self._edges.get(self.root, ())) == 1
++
++    def node(self, key: str) -> Node:
++        return self._nodes[key]
++
++    def out_edges(self, key: str) -> tuple[Edge, ...]:
++        return tuple(self._edges.get(key, ()))
++
++    def keys(self) -> Iterator[str]:
++        return iter(self._nodes)
++
++    def __len__(self) -> int:
++        return len(self._nodes)
+diff --git a/src/sequential_search/core/node.py b/src/sequential_search/core/node.py
+new file mode 100644
+index 0000000..288e844
+--- /dev/null
++++ b/src/sequential_search/core/node.py
+@@ -0,0 +1,76 @@
++"""Узел графа = эксперимент (ADR-001). Никакой статистики в этом модуле.
++
++Инварианты, проверяемые runtime (ADR-003, слой 1):
++  N1  step() возвращает новый Observation; состояние узла неизменяемо
++      (immutable value), шаг не модифицирует аргументы — транзакционность
++      наследуется от Procedure из sequential-analysis.
++  N2  cost() >= 0 и конечна. Стоимость наблюдения может различаться по уровням
++      (кейс 5: тонкий срез дороже усреднённого), поэтому она функция состояния,
++      а не константа ребра.
++  N3  canonical_key() определён для всякого посещённого состояния: два узла с
++      одинаковым ключом — один и тот же эксперимент (инвариант 5, no double
++      counting). Для чистого дерева ключ уникален по построению.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Mapping, Protocol, runtime_checkable
++
++
++@dataclass(frozen=True)
++class Observation:
++    """Одно наблюдение эксперимента: тик + именованные значения.
++
++    Совпадает по семантике со словарём входа `Procedure.step` в
++    sequential-analysis (`{'x': ...}`), поэтому адаптер слоя stats не
++    преобразует данные, а только маршрутизирует их.
++    """
++
++    t: int
++    values: Mapping[str, Any]
++
++    def __post_init__(self) -> None:
++        if self.t < 1:
++            raise ValueError(f"Observation.t must be >= 1, got {self.t}")
++        if not isinstance(self.values, Mapping):
++            raise TypeError("Observation.values must be a mapping")
++
++
++@runtime_checkable
++class Node(Protocol):
++    """Эксперимент, порождающий поток наблюдений.
++
++    НЕ является: данными, гипотезой, «скором» агента (ADR-001).
++    """
++
++    name: str
++
++    def step(self) -> Observation:
++        """Сделать одно наблюдение. Идемпотентность не требуется, чистота — да."""
++        ...
++
++    def state(self) -> Any:
++        """Текущее состояние узла как immutable value (для чекпоинтинга)."""
++        ...
++
++    def cost(self) -> float:
++        """Стоимость СЛЕДУЮЩЕГО шага (N2)."""
++        ...
++
++    def canonical_key(self) -> str:
++        """Ключ канонической формы состояния (N3)."""
++        ...
++
++    def is_terminal(self) -> bool:
++        """Поглощающее состояние: дальнейшие шаги запрещены."""
++        ...
++
++
++def check_node(node: Node) -> None:
++    """Проверить инварианты N1-N3 на текущем состоянии узла. Бросает ValueError."""
++    key = node.canonical_key()
++    if not isinstance(key, str) or not key:
++        raise ValueError(f"node '{node.name}': canonical_key must be non-empty str")
++    c = node.cost()
++    if not (isinstance(c, (int, float)) and c >= 0):
++        raise ValueError(f"node '{node.name}': cost must be a non-negative number, got {c!r}")
+diff --git a/src/sequential_search/io/__init__.py b/src/sequential_search/io/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/sequential_search/policy/__init__.py b/src/sequential_search/policy/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/sequential_search/policy/base.py b/src/sequential_search/policy/base.py
+new file mode 100644
+index 0000000..a5de80c
+--- /dev/null
++++ b/src/sequential_search/policy/base.py
+@@ -0,0 +1,32 @@
++"""Политика обхода = чистая функция frontier × бюджеты -> следующий узел.
++
++Определение (ADR-003, слой 4): политика *guarantee-invariant*, если для любой
++последовательности наблюдений распределение ошибок обхода (FWER/FDR, ARL) не
++зависит от выбора, сделанного политикой. Формально: решение на ребре есть
++функция только накопленных улик этого ребра (инвариант E1), а политика влияет
++лишь на то, КАКИЕ улики успели накопиться к моменту остановки по бюджету.
++
++Следствие: политика обязана вызывать `node.feed(values)` и читать
++`edge.decide(evidence)`, но не имеет права порождать решения сама.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Protocol, Sequence
++
++
++@dataclass(frozen=True)
++class Budgets:
++    """Двумерный бюджет (ADR-001): риск и ресурс не конвертируются друг в друга."""
++
++    alpha_left: float     # оставшийся α-бюджет (e-value calibration)
++    cost_left: float      # оставшаяся стоимость (шаги, байты, токены, секунды)
++
++    def can_afford(self, cost: float) -> bool:
++        return cost <= self.cost_left + 1e-12
++
++
++class Policy(Protocol):
++    def next_node(self, frontier: Sequence[str], budgets: Budgets) -> str | None:
++        """Вернуть ключ узла или None (остановка). Не должен ничего накапливать."""
++        ...
+diff --git a/src/sequential_search/stats/__init__.py b/src/sequential_search/stats/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/src/sequential_search/stats/procedure.py b/src/sequential_search/stats/procedure.py
+new file mode 100644
+index 0000000..c9921f2
+--- /dev/null
++++ b/src/sequential_search/stats/procedure.py
+@@ -0,0 +1,130 @@
++"""Адаптер Procedure из sequential-analysis -> Node + EvidenceState (ADR-003, слой 2).
++
++Здесь единственное место ядра, которое знает про upstream. Адаптер тонкий:
++он не реализует статистику, а связывает контракт узла с контрактом Run.
++
++Инвариант degenerate anchor требует численного совпадения с standalone-прогоном,
++поэтому `ProcedureNode` обязан использовать ровно один `Run` на узел и передавать
++наблюдения без преобразования (см. Observation в core/node.py).
++"""
++from __future__ import annotations
++
++from typing import Any
++
++from sequential_search.core.edge import Decision, EvidenceState
++from sequential_search.core.node import Observation
++
++
++class ProcedureNode:
++    """Узел-эксперимент поверх последовательной процедуры sequential-analysis.
++
++    Реализует протокол core.node.Node. Конструируется лениво: сам Run создаётся
++    при первом шаге, чтобы импорт ядра не требовал тяжёлого upstream.
++    """
++
++    def __init__(self, name: str, procedure_factory, *, seed: int | None = None,
++                 cost_per_step: float = 1.0, canonical_key: str | None = None) -> None:
++        self.name = name
++        self._procedure_factory = procedure_factory   # callable() -> Procedure
++        self._seed = seed
++        self._cost = float(cost_per_step)
++        self._canonical_key = canonical_key
++        self._run = None
++        self._t = 0
++        self._last_output: Any = None
++        self._last_values: dict[str, Any] = {}
++
++    # --- Node protocol -------------------------------------------------
++    def step(self) -> Observation:
++        """Синхронизировать счётчик и вернуть последнее принятое наблюдение.
++
++        Для ProcedureNode данные поступают извне через feed(), поэтому step()
++        существует ради совместимости с протоколом Node (например, для узлов,
++        генерирующих собственные наблюдения) и не двигает статистику вперёд.
++        """
++        return Observation(t=self._t, values=dict(self._last_values))
++
++    def feed(self, values: dict[str, Any]) -> EvidenceState:
++        """Подать наблюдение процедуре и вернуть накопленные улики ребра.
++
++        Это основной путь:Traversal вызывает его вместо «слепого» step(),
++        потому что данные приходят извне (слайс томографии, ход агента, шаг
++        вывода), а не генерируются узлом.
++        """
++        run = self._ensure_run()
++        event = run.step(values)
++        self._t = event.t
++        self._last_values = dict(values)
++        self._last_output = event.output
++        return self.evidence()
++
++    def state(self) -> Any:
++        return self._ensure_run().state
++
++    def cost(self) -> float:
++        return self._cost
++
++    def canonical_key(self) -> str:
++        return self._canonical_key or f"{self.name}@{self._t}"
++
++    def is_terminal(self) -> bool:
++        return self._run is not None and self._run.terminal
++
++    # --- улики ---------------------------------------------------------
++    def evidence(self) -> EvidenceState:
++        """e-value из log LR процедуры (для SPRT/мартингальных процедур)."""
++        out = self._last_output
++        if out is None:
++            return EvidenceState(e=1.0, stat=None, n=0)
++        llr = getattr(out, "llr", None)
++        stat = llr if llr is not None else getattr(out, "stat", None)
++        e = _exp_if_finite(llr) if llr is not None else 1.0
++        n = int(getattr(out, "n", self._t))
++        return EvidenceState(e=e, stat=out, n=n)
++
++    def decision(self) -> Decision:
++        d = getattr(self._last_output, "decision", None)
++        if d in ("reject_h0", "accept_h1"):
++            return Decision.ACCEPT
++        if d in ("accept_h0", "reject_h1"):
++            return Decision.REJECT
++        return Decision.PENDING
++
++    # --- internals -----------------------------------------------------
++    def _ensure_run(self):
++        if self._run is None:
++            from sequential_analysis import Run  # локальный импорт: [core] extra без upstream
++            proc = self._procedure_factory()
++            self._run = Run(proc, seed=self._seed)
++            self._run.start()
++        return self._run
++
++
++def _exp_if_finite(x: float | None) -> float:
++    """log LR -> e-value с защитой от переполнения (e-валюта ядра)."""
++    import math
++
++    if x is None:
++        return 1.0
++    if x > 700:
++        return math.inf
++    if x < -745:
++        return 0.0
++    return math.exp(x)
++
++
++def wald_thresholds(alpha: float, beta: float) -> tuple[float, float]:
++    """Границы Вальда в e-валютe для вырожденного случая (SPRT).
++
++    upper = exp(log((1-beta)/alpha)) — порог отвержения H0;
++    lower = exp(log(beta/(1-alpha))) — порог принятия H0.
++
++    Возвращает именно экспоненты, потому что EvidenceState.e хранит e-value,
++    а не log LR; совпадение с `SPRT.upper/lower` из sequential-analysis
++    проверяется тестом degenerate anchor.
++    """
++    import math
++
++    if not (0 < alpha < 1 and 0 < beta < 1 and alpha + beta < 1):
++        raise ValueError("need alpha, beta in (0,1) with alpha + beta < 1")
++    return math.exp(math.log((1.0 - beta) / alpha)), math.exp(math.log(beta / (1.0 - alpha)))
+diff --git a/tests/test_degenerate_anchor.py b/tests/test_degenerate_anchor.py
+new file mode 100644
+index 0000000..62a5b19
+--- /dev/null
++++ b/tests/test_degenerate_anchor.py
+@@ -0,0 +1,97 @@
++"""Degenerate anchor (инвариант 2 README, ADR-003 следствие 1).
++
++Спецификация: одно-реберный граф root->leaf с SPRT-узлом обязан давать
++ПОСЛЕДОВАТЕЛЬНО совпадающие llr/decision с standalone прогоном того же SPRT
++из sequential-analysis на тех же данных и том же seed.
++
++Этот тест — не проверка реализации обхода (его ещё нет), а проверка того,
++что адаптер ProcedureNode не вносит искажений. Он зелёный ДО traversal.
++"""
++from __future__ import annotations
++
++import math
++
++import pytest
++
++sa = pytest.importorskip("sequential_analysis", reason="нужен extra [full]")
++from sequential_analysis import Run  # noqa: E402
++from sequential_analysis.procedures import Gaussian, SPRT  # noqa: E402
++
++from sequential_search.core.edge import Decision, threshold_rule  # noqa: E402
++from sequential_search.stats.procedure import ProcedureNode, wald_thresholds  # noqa: E402
++
++DATA = [0.1, 0.9, 1.2, 0.7, 1.5, 1.1, 0.8, 1.9]
++
++
++def make_sprt() -> SPRT:
++    return SPRT(Gaussian(sigma=1.0), theta0=0.0, theta1=1.0, alpha=0.05, beta=0.1)
++
++
++def test_wald_thresholds_match_upstream():
++    """Границы ядра (в e-валюте) == exp-границы upstream (в log LR)."""
++    proc = make_sprt()
++    upper_e, lower_e = wald_thresholds(proc.alpha, proc.beta)
++    assert math.isclose(upper_e, math.exp(proc.upper), rel_tol=1e-12)
++    assert math.isclose(lower_e, math.exp(proc.lower), rel_tol=1e-12)
++
++
++def test_llr_sequence_matches_standalone_run():
++    """Пошаговое совпадение llr и накопленных улик."""
++    standalone = Run(make_sprt())
++    standalone.start()
++
++    node = ProcedureNode("root", make_sprt)
++    rule = threshold_rule(*wald_thresholds(0.05, 0.1))
++
++    for i, x in enumerate(DATA, start=1):
++        ev = standalone.step({"x": x})
++        evidence = node.feed({"x": x})
++
++        assert evidence.n == i
++        assert math.isclose(ev.output.llr, evidence.stat.llr, rel_tol=0.0, abs_tol=0.0), \
++            f"llr разошёлся на шаге {i}"
++
++        # решение ребра (по e-value) == решение процедуры (по log LR)
++        ours = rule.decide(evidence)
++        theirs = ev.output.decision
++        if theirs is None:
++            assert ours is Decision.PENDING, f"шаг {i}: ожидаем pending"
++        elif theirs == "reject_h0":
++            assert ours is Decision.ACCEPT, f"шаг {i}: reject_h0 должен быть accept(H1)"
++        else:
++            assert ours is Decision.REJECT, f"шаг {i}: accept_h0 должен быть reject"
++
++
++def test_terminal_agreement():
++    """Момент остановки совпадает ровно до индекса."""
++    standalone = Run(make_sprt())
++    standalone.start()
++    node = ProcedureNode("root", make_sprt)
++
++    stop_standalone = stop_ours = None
++    for i, x in enumerate(DATA, start=1):
++        ev = standalone.step({"x": x})
++        node.feed({"x": x})
++        if ev.terminal and stop_standalone is None:
++            stop_standalone = i
++        if node.is_terminal() and stop_ours is None:
++            stop_ours = i
++    assert stop_standalone == stop_ours == 8  # из разведочного прогона: терминал на t=8
++
++
++def test_checkpoint_roundtrip_is_compatible():
++    """Состояние узла сериализуемо через upstream-чекпоинт и продолжимо."""
++    node = ProcedureNode("root", make_sprt)
++    for x in DATA[:5]:
++        node.feed({"x": x})
++    cp = node._ensure_run().checkpoint()          # формат upstream, не свой envelope
++    assert cp["format"] and cp["state"] is not None
++
++    resumed = Run.restore(make_sprt(), cp)
++    resumed.start()   # restore возвращает PAUSED (см. докстринг upstream)
++    a = Run(make_sprt()); a.start()
++    for x in DATA:
++        a.step({"x": x})
++    for x in DATA[5:]:
++        resumed.step({"x": x})
++    assert math.isclose(resumed.state.llr, a.state.llr, rel_tol=1e-12)
+diff --git a/tests/test_graph_core.py b/tests/test_graph_core.py
+new file mode 100644
+index 0000000..40d87a8
+--- /dev/null
++++ b/tests/test_graph_core.py
+@@ -0,0 +1,83 @@
++"""Юнит-тесты слоя контрактов (ADR-003, слой 1). Работают БЕЗ upstream."""
++from __future__ import annotations
++
++import pytest
++
++from sequential_search.core.edge import Decision, Edge, EvidenceState, threshold_rule
++from sequential_search.core.graph import SearchGraph
++from sequential_search.core.node import Observation, check_node
++from sequential_search.policy.base import Budgets
++
++
++class FakeNode:
++    def __init__(self, name: str, key: str | None = None, cost: float = 1.0) -> None:
++        self.name = name
++        self._key = key or name
++        self._cost = cost
++
++    def step(self) -> Observation:
++        return Observation(t=1, values={"x": 0.0})
++
++    def state(self):
++        return self._key
++
++    def cost(self) -> float:
++        return self._cost
++
++    def canonical_key(self) -> str:
++        return self._key
++
++    def is_terminal(self) -> bool:
++        return False
++
++
++def test_observation_rejects_t_zero():
++    with pytest.raises(ValueError):
++        Observation(t=0, values={"x": 1})
++
++
++def test_check_node_rejects_negative_cost():
++    with pytest.raises(ValueError):
++        check_node(FakeNode("n", cost=-1.0))
++
++
++def test_dag_merging_no_double_counting():
++    """Два узла с одним canonical_key — один эксперимент (инвариант 5)."""
++    g = SearchGraph()
++    a = g.add_node(FakeNode("path1", key="equation::x+y=2"))
++    b = g.add_node(FakeNode("path2", key="equation::x+y=2"))
++    assert a == b and len(g) == 1
++
++
++def test_degenerate_graph_is_recognized():
++    g = SearchGraph()
++    root = g.add_node(FakeNode("root"))
++    leaf = g.add_node(FakeNode("leaf"))
++    g.add_edge(Edge(root, leaf, threshold_rule(19.0, 0.111)))
++    assert g.is_degenerate()
++
++
++def test_unknown_edge_endpoint_raises():
++    g = SearchGraph()
++    root = g.add_node(FakeNode("root"))
++    with pytest.raises(KeyError):
++        g.add_edge(Edge(root, "ghost", threshold_rule(19.0, None)))
++
++
++def test_threshold_rule_three_way():
++    rule = threshold_rule(upper=19.0, lower=0.111)
++    assert rule.decide(EvidenceState(e=1.0)) is Decision.PENDING
++    assert rule.decide(EvidenceState(e=20.0)) is Decision.ACCEPT
++    assert rule.decide(EvidenceState(e=0.05)) is Decision.REJECT
++
++
++def test_evidence_state_rejects_negative():
++    with pytest.raises(ValueError):
++        EvidenceState(e=-1.0)
++
++
++def test_budgets_are_two_dimensional():
++    b = Budgets(alpha_left=0.05, cost_left=100.0)
++    assert b.can_afford(100.0) and not b.can_afford(101.0)
++    # исчерпание ресурса не меняет α-бюджет и наоборот
++    assert Budgets(0.0, 100.0).can_afford(1.0)
+-- 
+2.39.5
+
