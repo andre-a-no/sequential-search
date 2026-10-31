@@ -1,10 +1,15 @@
 # sequential-search
 
-Mathematical **kernel for sequential statistical decision-making during graph
-traversal**. It inherits the problem setting of
+**Sequential statistical decision-making during graph traversal** (math layer).
+It inherits the problem setting of
 [`sequential-analysis`](https://pypi.org/project/sequential-analysis/) but moves
 it from a flat stream of observations onto a graph: every traversal is a stream
 of experiments, and every edge is a statistical decision.
+
+The name says what this is *not*: it is not `sequentialist-search` (the
+interpretation layer on top), and it is not a "core" — the core procedures live
+upstream. What distinguishes it is that decisions are taken **sequentially**,
+along a traversal; a classical binary test appears only as a degenerate case.
 
 A classical binary test (SPRT and friends) is the degenerate case of a graph
 `root → leaf` with a single edge.
@@ -69,9 +74,9 @@ layer (a separate wrapper repository).
 
 ```
 src/sequential_search/
-├── core/            # graph ontology
-│   ├── node.py      # Node protocol, Observation, EvidenceState, canonical_key
-│   ├── edge.py      # Edge, StoppingDecision
+├── graph/           # graph ontology (was: core/, renamed by ADR-007)
+│   ├── node.py      # Node protocol, Observation, canonical_key
+│   ├── edge.py      # Edge, StoppingRule, Decision (+WITHDRAW/RESUME)
 │   ├── graph.py     # SearchGraph: DAG with node merging, dynamic expansion
 │   └── traversal.py # Traversal: finite / perpetual / resumable, checkpoints
 ├── stats/           # mathematics (thin wrappers over sequential-analysis)
@@ -122,10 +127,10 @@ src/sequential_search/
 The project is in the design stage. Accepted decisions are documented as ADRs in
 `docs/`.
 
-**Implemented**: layer 1 (contracts `core/node.py`, `core/edge.py`,
-`core/graph.py`, `policy/base.py`) + the `stats/procedure.py` adapter + the
-degenerate anchor (20 tests, green; 8 of them run without the upstream package
-installed — the `[core]` extra is self-sufficient).
+**Implemented**: layer 1 (contracts `graph/node.py`, `graph/edge.py`,
+`graph/graph.py`, `policy/base.py`) + the `stats/procedure.py` adapter + the
+degenerate anchor (20 tests, green; 16 of them run without the upstream package
+installed — the upstream dependency is optional by design, ADR-003).
 
 **Degenerate-anchor specification** is fixed by the code in
 `tests/test_degenerate_anchor.py`; no separate markdown file was created for it
@@ -133,7 +138,7 @@ installed — the `[core]` extra is self-sufficient).
 truth.
 
 **Order of the next steps** (changed by ADR-006): `io/checkpoint.py` →
-`core/traversal.py` → `stats/error_budget.py` → `interpreters/hierarchy.py`.
+`graph/traversal.py` → `stats/error_budget.py` → `interpreters/hierarchy.py`.
 Checkpoints come before traversal because `RESUME` requires preserving the
 accumulated evidence, and without it `WITHDRAW` cannot be made reversible
 without losing the guarantee.
@@ -145,12 +150,12 @@ until this is settled.
 ## Installation (once published)
 
 ```bash
-pip install sequential-search-core        # contracts only, no upstream dependency
-pip install sequential-search-core[full]  # + procedure adapters over sequential-analysis
+pip install sequential-search        # contracts only, no upstream dependency
+pip install sequential-search[full]  # + procedure adapters over sequential-analysis
 ```
 
-The name `sequential-search` on PyPI may already be taken — reserving `-core`
-(ADR-003, item 3), verified before the first release.
+PyPI availability of the plain name `sequential-search` is checked before the
+first release (ADR-007); nothing is pre-reserved.
 
 ## License
 

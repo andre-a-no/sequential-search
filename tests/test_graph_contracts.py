@@ -1,11 +1,11 @@
-"""Юнит-тесты слоя контрактов (ADR-003, слой 1). Работают БЕЗ upstream."""
+"""Unit tests of the contracts layer (ADR-003, layer 1). Run WITHOUT upstream."""
 from __future__ import annotations
 
 import pytest
 
-from sequential_search.core.edge import Decision, Edge, EvidenceState, threshold_rule
-from sequential_search.core.graph import SearchGraph
-from sequential_search.core.node import Observation, check_node
+from sequential_search.graph.edge import Decision, Edge, EvidenceState, threshold_rule
+from sequential_search.graph.graph import SearchGraph
+from sequential_search.graph.node import Observation, check_node
 from sequential_search.policy.base import Budgets
 
 
@@ -42,7 +42,7 @@ def test_check_node_rejects_negative_cost():
 
 
 def test_dag_merging_no_double_counting():
-    """Два узла с одним canonical_key — один эксперимент (инвариант 5)."""
+    """Two nodes with the same canonical_key are one experiment (invariant 5)."""
     g = SearchGraph()
     a = g.add_node(FakeNode("path1", key="equation::x+y=2"))
     b = g.add_node(FakeNode("path2", key="equation::x+y=2"))
@@ -79,5 +79,5 @@ def test_evidence_state_rejects_negative():
 def test_budgets_are_two_dimensional():
     b = Budgets(alpha_left=0.05, cost_left=100.0)
     assert b.can_afford(100.0) and not b.can_afford(101.0)
-    # исчерпание ресурса не меняет α-бюджет и наоборот
+    # exhausting the resource does not change the alpha budget, and vice versa
     assert Budgets(0.0, 100.0).can_afford(1.0)

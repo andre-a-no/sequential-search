@@ -1,20 +1,21 @@
-"""Контракт четвёртого/пятого исхода (ADR-005 дыра D, ADR-006).
+"""Contract of the fourth/fifth outcome (ADR-005 hole D, ADR-006).
 
-Спецификация, а не набор проверок «на всякий случай». Три утверждения, которые
-нельзя нарушить без потери смысла WITHDRAW/RESUME:
+A specification, not a set of "just in case" checks. Three claims that cannot be
+violated without WITHDRAW/RESUME losing their meaning:
 
-1. StoppingRule физически не способен породить WITHDRAW/RESUME. Это граница
-   ответственности: улики решают про гипотезу, стоимость решает про игру.
-2. WITHDRAW — терминальный, RESUME — нет. Если RESUME станет терминальным,
-   возобновление превратится в новый поиск с обнулёнными уликами.
-3. Возврат α возможен ровно в пределах зарезервированного. Иначе бюджет
-   печатает α из воздуха и global guarantee ложна.
+1. A StoppingRule is physically incapable of producing WITHDRAW/RESUME. This is
+   the boundary of responsibility: evidence decides about the hypothesis, cost
+   decides about the game.
+2. WITHDRAW is terminal, RESUME is not. If RESUME became terminal, resumption
+   would turn into a new search with zeroed-out evidence.
+3. A refund is possible exactly within what was reserved. Otherwise the budget
+   prints alpha out of thin air and the global guarantee is false.
 """
 from __future__ import annotations
 
 import pytest
 
-from sequential_search.core.edge import (
+from sequential_search.graph.edge import (
     Decision,
     Edge,
     EvidenceState,
@@ -26,7 +27,7 @@ from sequential_search.policy.base import Budgets
 
 
 class _BadRule:
-    """Правило-нарушитель: пытается решить про стоимость через улики."""
+    """A rule-breaker: tries to decide about cost through evidence."""
 
     def __init__(self, verdict: Decision) -> None:
         self._verdict = verdict
@@ -78,7 +79,7 @@ def test_overreserve_rejected_b1() -> None:
 
 
 def test_overrefund_rejected_b2() -> None:
-    """WITHDRAW не может напечатать α — ровно то, ради чего введено reserved."""
+    """WITHDRAW cannot print alpha -- exactly why `reserved` was introduced."""
     b = Budgets(alpha_left=0.04, cost_left=70.0, alpha_reserved=0.01, cost_reserved=30.0)
     with pytest.raises(ValueError, match="B2"):
         b.refund(alpha=0.02, cost=0.0)

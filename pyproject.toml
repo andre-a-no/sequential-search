@@ -3,15 +3,16 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sequential-search-core"
+name = "sequential-search"
 version = "0.0.1"
-description = "Mathematical kernel for sequential statistical decision-making during graph traversal"
+description = "Sequential statistical decision-making during graph traversal (math layer; binary tests are its degenerate case)"
 requires-python = ">=3.11"
 license = { text = "AGPL-3.0-or-later" }
 dependencies = []
 
 [project.optional-dependencies]
-# Контракты + тесты вырожденного случая работают без тяжёлого upstream (ADR-003, следствие 2)
+# The upstream dependency is optional on purpose: contracts and the degenerate
+# anchor run without it (ADR-003, corollary 2).
 full = ["sequential-analysis>=0.4,<0.5"]
 dev = ["pytest>=8", "hypothesis>=6"]
 

@@ -1,8 +1,9 @@
-"""sequential-search: mathematical kernel for graph traversal with statistical
-decisions.
+"""sequential-search: sequential statistical decision-making during graph traversal.
 
-See docs/ADR-001..006. The package deliberately contains no domain-specific
-interpretations — those live in sequentialist-search.
+Math layer only -- domain interpretations live in the `sequentialist-search`
+wrapper (see docs/ADR-001..006). What makes this package *sequential-search*
+rather than *sequentialist-search* is that it contains no interpretation of
+nodes, edges or observations; classical binary tests are its degenerate case.
 """
 
 __version__ = "0.0.1"
