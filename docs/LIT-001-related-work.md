@@ -16,11 +16,25 @@ Stone/Koopman, Adams–MacKay), и позиции с пометкой **«све
 в годе или составе авторов (бо́льшая часть online-FDR, hierarchical bandits,
 graphical procedures, econometrics-раздел).
 
-Ограничение проверки: из этого окружения сеть доступна только на уровне
-TCP-коннекта к arxiv.org (HTTP не поднимается), поэтому выходы, воспроизведённые
-по памяти, верифицировать не удалось. Требование: перед публикацией
-README/paper прогнать список через нормальный поиск и снять все пометки.
-Пока пометки стоят, файл годится как карта направлений, но не как citations.
+**Обновление 2026-11-01 (v2): часть позиций верифицирована.** Сеть оказалась
+доступна через arXiv Atom API (`export.arxiv.org/api/query`) — обычный HTTP к
+`arxiv.org` отдаёт 429, но API работает. Прогнан batch-скрипт; результаты в §9.
+Статусы теперь трёхуровневые:
+
+* `[SA]` — проверено grep'ом по исходникам `sequential-analysis` 0.4.0;
+* `[AX]` — **верифицировано v2**: название, авторы, дата и id подняты из ответа
+  arXiv API (эти цитаты можно использовать как есть);
+* без пометки / «сверить» — воспроизведение по памяти, **не проверено** (в т.ч.
+  бумажные журнальные выходы типа PNAS/Ann. Statist./Biometrika, которых нет в
+  отклике API по нашим запросам).
+
+Важное уточнение метода: пустой ответ API (`total: 0`) означает лишь то, что
+запрос по точной фразе ничего не нашёл, и **не является опровержением** позиции.
+Две позиции были исправлены именно так: «Zrnic–Ramdas *Online multiple testing
+with adaptive stopping rules*» в природе под этим названием не найдена — реальная
+ближайшая работа есть *Asynchronous Online Testing of Multiple Hypotheses*
+`[AX]`; LOND у Candès в API не поднимается по нашим запросам (найден только
+conformal-постер), так что выход остаётся непроверенным.
 
 ---
 
@@ -61,9 +75,17 @@ README/paper прогнать список через нормальный по�
 Здесь литература прямо соответствует нашей задаче «обходим граф и решаем».
 
 * Family-wise: Holm (1979), Hochberg (1988), Hommel (1988), Šidák (1967). Классика, но все предполагают **один фиксированный список** гипотез, а у нас список растёт во время обхода.
-* Online FDR: **Candès, Zrnic, Fan (2018), PNAS 115 — LOND** (первая широко используемая онлайн-процедура); **Zrnic, Ramdas, Tibshirani (2019?) — ADDIS** и **Angelopoulos, Zrnic, Wang, Ramdas — a unified view of online multiple testing**; **Livnat, Papadimitriou, Daskalakis (2015), IEEE Trans. IT 61** — адверсариальная онлайн-постановка. Точные годы/составы этих трёх позиций сверить перед публикацией библиографии — я их привожу по памяти.
+* Online FDR: **Candès, Zrnic, Fan (2018), PNAS 115 — LOND** (первая широко используемая онлайн-процедура; в arXiv API по запросам `ti:"online inference"` + `au:"Candes" AND ti:"online"` не поднялась — выход остаётся непроверенным, но это не опровержение).
+* **Tian & Ramdas (2019), ADDIS: an adaptive discarding algorithm for online FDR control with conservative nulls — arXiv:1905.11465 `[AX]`** (поднято v2; авторство — Tian/Ramdas, а *не* Zrnic/Ramdas/Tibshirani, как было написано в v1 по памяти).
+* **Fischer, Bofill Roig & Brannath (2023), ADDIS-Graphs for online error control with application to platform trials — arXiv:2301.11711 `[AX]`** и та же группа, **An exhaustive ADDIS principle for online FWER control — arXiv:2308.13827 `[AX]`**. Это прямое попадание в нашу дыру «граф + online»: граф передающего α уже фигурирует в online-контроле ошибок (platform trials = стадии/ветви). Обязательно прочитать перед `stats/error_budget.py`.
+* **Javanmard & Montanari (2016/2018), On online control of the false discovery rate — arXiv:1502.06197; Online Rules for Control of FDR and FDx — arXiv:1603.09000 `[AX]`** (поднято v2; в v1 год 2018 и «γ-последовательность» были по памяти — даты preprint'ов теперь подтверждены).
+* **Xu & Ramdas (2023), Online multiple testing with e-values — arXiv:2311.06412 `[AX]`** и **Dynamic Algorithms for Online Multiple Testing — arXiv:2010.13953 `[AX]`** (поднято v2; уточняет §3: e-value-поток без зависимости уже разобран).
+* **Döhler, Meah & Roquain (2021), Online multiple testing with super-uniformity reward — arXiv:2110.01255 `[AX]`** (поднято v2).
+* **Ramdas, Yang, Wainwright (2017), Online control of the FDR with decaying memory — arXiv:1710.00499 `[AX]`** (поднято v2) — decay = наш механизм возврата неиспользованного α при WITHDRAW (`Budgets.refund`).
+* **Livnat, Papadimitriou, Daskalakis (2015), IEEE Trans. IT 61** — адверсариальная онлайн-постановка (по памяти, не проверено).
+* «Angelopoulos, Zrnic, Wang, Ramdas — a unified view of online multiple testing» — в arXiv API не найдено под этим названием; возможно, перепутана формулировка. Снять или найти корректно.
 * Ramdas, Zrnic, Funderburk, Tibshirani, Wainwright (2018), Ann. Statist. 46 — **SAFER / LORD-1**: online FDR на e-value/p-value потоке.
-* **Zrnic & Ramdas (2024), Online multiple testing with adaptive stopping rules** (arXiv; точный выход сверить) — поток опытов, каждый со своим моментом остановки; буквально наш кейс «поток гипотез» + «разные стоимости». Это ближайшая к нам работа: она доказывает, что «останавливаюсь сам» и «решаю в потоке» совместимы, но графа/дерева там нет.
+* **Zrnic, Ramdas & Jordan (2018), Asynchronous Online Testing of Multiple Hypotheses — arXiv:1812.05068 `[AX]`** (**исправление v2**: в v1 эта позиция была записана по памяти как «Zrnic & Ramdas (2024), *Online multiple testing with adaptive stopping rules*» — под таким названием в arXiv API ничего не найдено (`total: 0`), реальная ближайшая к нам работа именно эта). Смысл для нас тот же, что был сформулирован: поток опытов, каждый со своим моментом остановки; доказывает совместимость «останавливаюсь сам» и «решаю в потоке», но графа/дерева там нет — наш вклад начинается ровно там.
 * Xu & Ramdas (2024), arXiv:2309.05056 — **e-LOND**, FDR-контроль при *произвольной* зависимости `[SA: procedures/online_fdr.py]`. Критично: наши узлы зависимы (§8), и это единственный известный механизм, который это терпит.
 * Javanmard & Montanari (2018), IEEE Trans. IT — γ-последовательность по умолчанию `[SA]`.
 * Choe & Ramdas (2024), arXiv:2203.12535 `[SA]` — anytime-valid inference для *потока* p/e-значений.
@@ -153,6 +175,71 @@ e-LOND достаточно для нашего случая (передават
 проверить первым делом при реализации error_budget — не изобретать то, что
 уже есть.
 
+**Ответ на этот риск по итогам v2 (2026-11-01): он подтвердился частично, и это
+хорошая новость.** ADDIS-Graphs `[AX 2301.11711]` и exhaustive ADDIS principle
+`[AX 2308.13827]` делают ровно это — граф передачи α **в online-режиме**, т.е.
+вершины открываются во времени. Значит, комбинировать «Bretz + e-LOND вслепую»
+не нужно: существует готовый formalism, покрывающий graph+online. Что остаётся
+нашему ядру после проверки этих двух статей:
+
+* дерево ≠ произвольный граф: у нас DAG с дедупликацией по `canonical_key`
+  (ADR-003, инвариант no-double-counting) и динамическим раскрытием *решениями
+  обхода*, а не по заранее заданному расписанию;
+* двухмерный бюджет: resource-cost как отдельный ограничитель с `reserve/refund`
+  (WITHDRAW/RESUME, ADR-005/006) — в literaturе про α-spending стоимости нет;
+* чекпоинтируемость и degenerate-anchor ≡ standalone SPRT — инженерная гарантия,
+  которой в статьях нет и которая стоит отдельно.
+
+Практическое следствие для плана: перед тем как писать `stats/error_budget.py`,
+читать в первую очередь 2301.11711 → 2308.13827 → 1812.05068 → 2311.06412. Если
+вывод будет «достаточно», error_budget становится тонким адаптером, а главный
+математический вклад смещается к доказательству корректности α-резерва при
+повторных WITHDRAW→RESUME cycles (открытый вопрос из ADR-006).
+
+### 9.2 Прямые конкуренты: найдено, и это меняет формулировку новизны
+
+При поиске по `all:"e-LOND"` всплыли две работы, которые нужно читать **до**
+любых заявлений о вкладе (обе `[AX]`, подняты v2 вместе с аннотациями):
+
+* **Guo, Yifan (2026-10), Evidence-Gated Research: Statistically Controlled Model
+  Adoption in Adaptive Search — arXiv:2610.01751v1.** Аннотация дословно про нашу
+  постановку: «adaptive model search is path dependent: once a challenger is
+  adopted, it becomes the reference from which later candidates are generated» +
+  статистический контроль над этим процессом. Это дерево выводов / каскад моделей
+  (ADR-002) с e-value-гейтом, т.е. наш кейс 3+7. **Обязательно к сверке:** совпадает
+  ли их formalism с нашим «граф строится решениями обхода», или у них только
+  последовательная цепь adoption'ов. Если первое — наш математический вклад
+  надо переформулировать и цитировать их как первоисточник.
+* **Zhang, Wei, Ren, Zou (2025-06), e-GAI: e-value-based Generalized α-Investing
+  for Online FDR Control — arXiv:2506.01452v2.** Обновление α-investing на
+  e-валюте; кандидат на роль «готового online-механизма» вместо самописного
+  error_budget.
+
+### 9.3 Остальные позиции §3–§4 (для полноты таблицы)
+
+| Позиция | Статус | Идентификатор |
+|---|---|---|
+| Guo — Evidence-Gated Research … Adaptive Search | `[AX]` | arXiv:2610.01751v1 (2026-10) |
+| Zhang, Wei, Ren, Zou — e-GAI | `[AX]` | arXiv:2506.01452v2 (2025-06) |
+| Fischer, Bofill Roig, Brannath — ADDIS-Graphs … platform trials | `[AX]` | arXiv:2301.11711v3 (2023-01) |
+| Fischer, Bofill Roig, Brannath — An exhaustive ADDIS principle for online FWER control | `[AX]` | arXiv:2308.13827v2 (2023-08) |
+| Tian, Ramdas — ADDIS … conservative nulls | `[AX]` | arXiv:1905.11465v3 (2019-05) |
+| Zrnic, Ramdas, Jordan — Asynchronous Online Testing of Multiple Hypotheses | `[AX]` | arXiv:1812.05068v2 (2018-12) |
+| Xu, Ramdas — Online multiple testing with e-values | `[AX]` | arXiv:2311.06412v1 (2023-11) |
+| Xu, Ramdas — Dynamic Algorithms for Online Multiple Testing | `[AX]` | arXiv:2010.13953v3 (2020-10) |
+| Döhler, Meah, Roquain — OMT with super-uniformity reward | `[AX]` | arXiv:2110.01255v2 (2021-10) |
+| Javanmard, Montanari — On online control of the FDR | `[AX]` | arXiv:1502.06197v2 (2015-02) |
+| Javanmard, Montanari — Online Rules for Control of FDR and FDx | `[AX]` | arXiv:1603.09000v3 (2016-03) |
+| Ramdas, Yang, Wainwright — Online FDR control with decaying memory | `[AX]` | arXiv:1710.00499v1 (2017-10) |
+| Hong, Kveton, Zaheer — Hierarchical Bayesian Bandits | `[AX]` | arXiv:2111.06929v2 (2021-11) |
+| Yue, Hong, Guestrin — Hierarchical Exploration for Accelerating Contextual Bandits | `[AX]` | arXiv:1206.6454v1 (2012-06) |
+| Villain, Gabillon, Lazaric — Regret Analysis for Hierarchical Experts Bandit Problem | `[AX]` (частично: авторы совпали с памятью, название — да) | arXiv:2208.05622v1 (2022-08) |
+| Mohaghegh Neyshabouri, Gokcesu, Ozkan — Asymptotically Optimal Contextual Bandit … Hierarchical Structures | `[AX]` | arXiv:1612.01367v2 (2016-12) |
+| Song, Rini, Xu — Hierarchical Causal Bandit | `[AX]` | arXiv:2103.04215v1 (2021-03) |
+| Candès, Zrnic, Fan — LOND (PNAS 115) | не проверено (в API не поднялось) | — |
+| Bretz et al. — Multiple Comparison Procedures Using Graphs (Springer 2011) | не проверено (книга, вне API) | — |
+| H-MAB Hasanbeik et al. 2017 | не проверено | — |
+
 ## 10. Открытые вопросы после обзора
 
 1. Зависимость между узлами: e-LOND терпит произвольную зависимость для FDR,
@@ -164,6 +251,24 @@ e-LOND достаточно для нашего случая (передават
 3. Switching-cost bandits и search theory дают политику, но не дают
    статистической гарантии — гарантия должна приходить из §1–§3, а не из политики.
    Инвариант guarantee-invariance (policy/base.py) формализует ровно это.
+4. **(v2, приоритет №1)** Прочитать arXiv:2610.01751 (Evidence-Gated Research),
+   2301.11711 + 2308.13827 (ADDIS-Graphs / exhaustive ADDIS) и 2506.01452 (e-GAI)
+   **до** написания `stats/error_budget.py`. Возможны три исхода, и все они
+   приемлемы: (а) наш случай уже решён → error_budget = адаптер, вклад ядра =
+   DAG+cost+чекпоинты; (б) решено для дерева/цепи, не для DAG с дедупликацией →
+   формулируем и доказываем обобщение; (в) не покрыт α-резерв при WITHDRAW→RESUME
+   → это наша теорема. Сейчас по состоянию сети это единственный блок, который
+   реально стоит перед реализацией.
+5. **(v2, закрыто)** e-LOND: проверено по исходникам зависимости —
+   `procedures/online_fdr.py` называет его «e-LOND (Xu and Ramdas 2024)», и это же
+   название соответствует верифицированному `[AX]` arXiv:**2311.06412** *Online
+   multiple testing with e-values* (Xu & Ramdas, preprint 2023-11; upstream датирует
+   по году публикации). Цитата в §3 корректна, расхождение было только в годе
+   (preprint 2023 vs published 2024) — записано как есть, имя искать больше не нужно.
+   Там же подтверждены два факта, важных для нас: FDR ≤ α **при произвольной
+   зависимости** и то, что уровень α_t известен до старта опыта t, т.е. опыт можно
+   вести до достижения e-процессом порога 1/α_t — это ровно наш контракт
+   `Edge.guard` + `ProcedureNode`.
 
 ---
 
