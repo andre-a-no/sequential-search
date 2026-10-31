@@ -1,7 +1,8 @@
-"""sequential-search: математическое ядро обхода графа со статистическими решениями.
+"""sequential-search: mathematical kernel for graph traversal with statistical
+decisions.
 
-См. docs/ADR-001..003. Пакет намеренно не содержит предметных интерпретаций —
-они живут в sequentialist-search.
+See docs/ADR-001..006. The package deliberately contains no domain-specific
+interpretations — those live in sequentialist-search.
 """
 
 __version__ = "0.0.1"

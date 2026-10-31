@@ -1,149 +1,157 @@
 # sequential-search
 
-Математическое ядро **последовательного принятия статистических решений при
-обходе графа**. Наследует постановку задачи
-[`sequential-analysis`](https://pypi.org/project/sequential-analysis/), но
-переносит её с плоского потока наблюдений на граф: каждый обход — это
-поток экспериментов, а каждое ребро — статистическое решение.
+Mathematical **kernel for sequential statistical decision-making during graph
+traversal**. It inherits the problem setting of
+[`sequential-analysis`](https://pypi.org/project/sequential-analysis/) but moves
+it from a flat stream of observations onto a graph: every traversal is a stream
+of experiments, and every edge is a statistical decision.
 
-Классический бинарный тест (SPRT и т.п.) — вырожденный случай графа
-`root → leaf` с одним ребром.
+A classical binary test (SPRT and friends) is the degenerate case of a graph
+`root → leaf` with a single edge.
 
-## Онтология (см. `docs/ADR-001-graph-nodes-as-experiments.md`)
+## Ontology (see `docs/ADR-001-graph-nodes-as-experiments.md`)
 
-| Сущность | Что это | Чем НЕ является |
+| Entity | What it is | What it is *not* |
 |---|---|---|
-| **Node** | эксперимент: `step() -> Observation`, `state() -> EvidenceState`, `cost` | данные, гипотеза, скор |
-| **Edge** | stopping rule: накопленные улики → решение `accept / reject / pending` | булев предикат (это лишь вырожденный случай) |
-| **Traversal** | политика обхода + глобальный бюджет ошибок (α-риск и ресурс) | цикл `for node in graph` |
+| **Node** | an experiment: `step() -> Observation`, `state() -> EvidenceState`, `cost` | data, a hypothesis, a score |
+| **Edge** | a stopping rule: accumulated evidence → decision `accept / reject / pending` | a boolean predicate (that is only its degenerate case) |
+| **Traversal** | a traversal policy + a global error budget (α-risk *and* resource) | a `for node in graph` loop |
 
-## Интерпретации, которые покрывает ядро
+## Interpretations covered by the kernel
 
-1. Каскад фильтров (pipeline, group-sequential).
-2. Адаптивное дерево условий (adaptive sampling).
-3. Поток гипотез с online-FDR (LORD/LTSI, graph-based FDR).
-4. Карта состояний HMM / change-point (CUSUM, BOCPD как траектории обхода).
-5. **Иерархическое углубление coarse-to-fine**: томография в глубь
-   (усреднил группу слайсов → SPRT-решение спускаться ли к тонким срезам),
-   пирамиды изображений, любой поиск по дереву разрешения с
-   **разной стоимостью наблюдения на уровнях**.
-6. **Статистические политики агентов**: вместо эвристик «N шагов и скор» —
-   anytime-valid критерий на каждом продолжении действия
+1. Filter cascades (pipeline, group-sequential).
+2. Adaptive conditioning trees (adaptive sampling designs).
+3. Streams of hypotheses with online FDR (LORD/LTSI, graph-based FDR).
+4. HMM state maps / change-point detection (CUSUM, BOCPD as traversal
+   trajectories).
+5. **Coarse-to-fine hierarchical refinement**: tomographic depth search
+   (average a block of slices → SPRT decision on whether to descend to thinner
+   slices), image pyramids, and any search over a resolution tree where
+   **observation cost differs per level**.
+6. **Statistical agent policies**: instead of heuristics like "run N steps then
+   score", an anytime-valid criterion at every action continuation
    (perpetual traversal).
-7. **Дерево выводов (statistical branch-and-bound)**: решение задачи от «дано»
-   к ответу; узел — промежуточное состояние, ребро — «продолжать ли ветку».
-   «Я делаю слишком сложно, надо было делать что-то другое» = CUSUM-детектор
-   смены режима приростов прогресса + нарушение inequality стоимости ожидания
-   до успеха относительно сиблингов. См. `docs/ADR-002-traversal-as-conjecture-lifecycle.md`.
-8. **Слежение за перемещающимся объектом** (объект сам путешествует по своему
-   графу; мы решаем, смещаться ли нам, и платим за перемещение). Оппонент с
-   собственной стратегией — вырожденный случай адаптивной среды, отдельная
-   библиотека для игр **не создаётся**. ⚠️ Этот кейс пока **не выполним на
-   текущем ядре**: вскрывает три дыры (зависимость наблюдений через среду,
-   сравнение двух точек съёма, perpetual + switching cost). См.
-   `docs/ADR-004-environment-as-adversary.md`.
-9. **Кооперативный поиск общего состояния (sequential matching)**: передатчик и
-   приёмник независимо крутят ручки в поисках лучшего канала, полезность общая.
-   Кооперативность не требует game theory, но требует **общего e-бюджета** для
-   обеих сторон. «Учитывая обстоятельства, нужно встать» — исход `WITHDRAW`,
-   отличный от `REJECT`: остановка по исчерпанию ценности продолжения, а не по
-   опровержению гипотезы, с возвратом неизрасходованного α. ⚠️ Не выполнимо до
-   закрытия дыры B. См. `docs/ADR-005-cooperative-matching-and-withdrawal.md`.
-10. **Возобновление после «встать»**: у WITHDRAW есть обратный переход `RESUME`,
-    иначе политика будет бояться закрывать ветку и недоиспользует бюджет.
-    Требование к контракту: RESUME обязан восстанавливать накопленные улики, а
-    не начинать поиск заново (иначе α-резерв тратится дважды). Известная
-    стратегия партнёра vs неизвестная — разные постановки: первая даёт точную
-    гарантию (conditional power), вторая только anytime-valid верхнюю; обе
-    выражаются параметрами узла, adversarial-режим вынесен **за скоуп ядра**.
-    См. `docs/ADR-006-resumable-search-and-known-partner.md`.
+7. **Inference tree (statistical branch-and-bound)**: solving a task from the
+   givens toward the answer; a node is an intermediate state, an edge is
+   "should this branch be continued?". "I am overcomplicating this, I should
+   have done something else" = a CUSUM change-point detector on progress
+   increments plus a violated expected-cost-to-success inequality relative to
+   sibling branches. See `docs/ADR-002-traversal-as-conjecture-lifecycle.md`.
+8. **Tracking a moving object** (the object itself travels over its own graph;
+   we decide whether to reposition, and we pay for moving). An opponent with
+   their own strategy is a degenerate case of an adaptive environment — no
+   separate game library is created. ⚠️ This case is **not yet expressible on
+   the current kernel**: it exposes three gaps (observations coupled through the
+   environment, comparing two sampling locations, perpetual + switching cost).
+   See `docs/ADR-004-environment-as-adversary.md`.
+9. **Cooperative search for a shared state (sequential matching)**: transmitter
+   and receiver independently turn their knobs looking for the best channel,
+   with a shared payoff. Cooperation requires no game theory, but it does
+   require a **common e-budget** across both sides. "Given the circumstances, I
+   should stand up" is the `WITHDRAW` outcome, distinct from `REJECT`: stopping
+   because continuing has lost its value, not because the hypothesis was
+   refuted, with a refund of unspent α. ⚠️ Not expressible until gap B is
+   closed. See `docs/ADR-005-cooperative-matching-and-withdrawal.md`.
+10. **Resuming after standing up**: `WITHDRAW` needs the inverse transition
+    `RESUME`, otherwise policies will fear closing a branch and will
+    under-spend the budget. Contract requirement: `RESUME` must restore the
+    accumulated evidence rather than restart the search (otherwise the α-reserve
+    is spent twice). A known partner strategy vs. an unknown one are different
+    problem settings: the first yields an exact guarantee (conditional power),
+    the second only an anytime-valid upper bound; both are expressed through
+    node parameters, and adversarial mode is kept **out of the kernel scope**.
+    See `docs/ADR-006-resumable-search-and-known-partner.md`.
 
-Прикладные интерпретации живут **не здесь**, а в слое
-`sequentialist-search` (отдельный репозиторий-обвязка).
+Applied interpretations do **not** live here, but in the `sequentialist-search`
+layer (a separate wrapper repository).
 
-## Структура пакета
+## Package layout
 
 ```
 src/sequential_search/
-├── core/            # онтология графа
+├── core/            # graph ontology
 │   ├── node.py      # Node protocol, Observation, EvidenceState, canonical_key
 │   ├── edge.py      # Edge, StoppingDecision
-│   ├── graph.py     # SearchGraph: DAG с merging узлов, динамическое раскрытие
-│   └── traversal.py # Traversal: finite / perpetual / resumable, чекпоинты
-├── stats/           # математика (тонкие обёртки над sequential-analysis)
+│   ├── graph.py     # SearchGraph: DAG with node merging, dynamic expansion
+│   └── traversal.py # Traversal: finite / perpetual / resumable, checkpoints
+├── stats/           # mathematics (thin wrappers over sequential-analysis)
 │   ├── procedure.py # Procedure adapter (SPRT, mSPRT, group-sequential…)
-│   ├── evidence.py  # e-values, likelihood ratios, накопление улик
-│   ├── error_budget.py  # offline/online контроль FWER/FDR, alpha-spending
-│   └── stopping.py  # StoppingRule, anytime-valid границы
-├── policy/          # выбор следующего узла
+│   ├── evidence.py  # e-values, likelihood ratios, evidence accumulation
+│   ├── error_budget.py  # offline/online FWER/FDR control, alpha-spending
+│   └── stopping.py  # StoppingRule, anytime-valid boundaries
+├── policy/          # choosing the next node
 │   ├── base.py
-│   ├── exhaustive.py    # полный DFS/BFS — базовый рабочий случай
-│   ├── bandit.py        # распределение бюджета (info per cost, VOI lower bound)
-│   └── budget.py        # resource-aware: стоимость узлов ∈ бюджет
-├── interpreters/    # эталонные mappings «граф ↔ задача» (минимальные)
+│   ├── exhaustive.py    # full DFS/BFS — the basic working case
+│   ├── bandit.py        # budget allocation (info per cost, VOI lower bound)
+│   └── budget.py        # resource-aware: node costs ∈ budget
+├── interpreters/    # reference "graph ↔ task" mappings (minimal)
 │   ├── hypotheses.py
 │   ├── sampling.py
 │   ├── pipeline.py
-│   ├── hierarchy.py     # томография/пирамиды: coarse-to-fine
-│   ├── inference.py     # дерево выводов: proof search / стат. branch-and-bound
-│   ├── tracking.py      # кейс 8: слежение; ✗ не выполним на текущем ядре (ADR-004)
-│   └── matching.py      # кейс 9: кооперативный поиск канала; ✗ до закрытия дыр B/D (ADR-005)
-└── io/              # сериализация, чекпоинты (формат совместим с sequential-analysis)
+│   ├── hierarchy.py     # tomography/pyramids: coarse-to-fine
+│   ├── inference.py     # inference tree: proof search / stat. branch-and-bound
+│   ├── tracking.py      # case 8: tracking; ✗ not expressible today (ADR-004)
+│   └── matching.py      # case 9: cooperative channel search; ✗ until gaps B/D (ADR-005)
+└── io/              # serialization, checkpoints (format compatible with sequential-analysis)
 ```
 
-## Инварианты ядра
+## Kernel invariants
 
-1. **Global guarantee**: family-wise error ≤ α по всему обходу, даже если
-   политика адаптирует порядок проверок (e-value calibration на рёбрах).
-2. **Degenerate anchor**: одно-реберный граф ≡ standalone SPRT из
-   `sequential-analysis` (тест фиксируется до реализации обхода).
-3. **Checkpointability**: состояние всего обхода сериализуемо и
-   воспроизводимо (RNG-семантика наследуется).
-4. **Cost-awareness**: `Node.cost` участвует в политике; гарантию α не
-   нарушает ни одна стратегия выбора следующего узла.
-5. **No double counting**: граф — DAG; повторный вход в канонически тот же
-   узел не создаёт нового эксперимента и не удваивает накопленные улики
-   (иначе множественность проверок скрывается и инвариант 1 ломается).
-6. **Separation of evidence and cost** (E4): правило остановки не способно
-   породить `WITHDRAW`/`RESUME` — они выводятся из стоимости продолжения на
-   уровне traversal, а не из силы улик. Иначе «уставший тест» неотличим от
-   «опровергнутого».
-7. **Budget conservativity** (B1/B2): α резервируется под ребро и списывается
-   только при ACCEPT/REJECT; возврат не превышает резерв. Без этого `WITHDRAW`
-   печатал бы α и инвариант 1 терял смысл.
+1. **Global guarantee**: family-wise error ≤ α across the whole traversal, even
+   when the policy adapts the order of tests (e-value calibration on edges).
+2. **Degenerate anchor**: a single-edge graph ≡ standalone SPRT from
+   `sequential-analysis` (the test is fixed before traversal is implemented).
+3. **Checkpointability**: the state of an entire traversal is serializable and
+   reproducible (RNG semantics inherited).
+4. **Cost-awareness**: `Node.cost` participates in the policy; no
+   next-node-selection strategy may violate the α guarantee.
+5. **No double counting**: the graph is a DAG; re-entering a canonically
+   identical node does not create a new experiment and does not duplicate the
+   accumulated evidence (otherwise multiplicity of testing is hidden and
+   invariant 1 breaks).
+6. **Separation of evidence and cost** (E4): a stopping rule cannot produce
+   `WITHDRAW`/`RESUME` — those follow from the cost of continuation at the
+   traversal level, not from the strength of the evidence. Otherwise an
+   "exhausted test" would be indistinguishable from a "refuted" one.
+7. **Budget conservativity** (B1/B2): α is reserved against an edge and only
+   spent on ACCEPT/REJECT; a refund never exceeds the reservation. Without
+   this, `WITHDRAW` would print α and invariant 1 would lose its meaning.
 
-## Статус
+## Status
 
-Проект на стадии проектирования. Принятые решения документируются как ADR
-в `docs/`.
+The project is in the design stage. Accepted decisions are documented as ADRs in
+`docs/`.
 
-**Реализовано**: слой 1 (контракты `core/node.py`, `core/edge.py`, `core/graph.py`,
-`policy/base.py`) + адаптер `stats/procedure.py` + degenerate anchor (20 tests,
-зелёные; 8 из них работают без установленного upstream — extra `[core]` автономен).
+**Implemented**: layer 1 (contracts `core/node.py`, `core/edge.py`,
+`core/graph.py`, `policy/base.py`) + the `stats/procedure.py` adapter + the
+degenerate anchor (20 tests, green; 8 of them run without the upstream package
+installed — the `[core]` extra is self-sufficient).
 
-**Спецификация degenerate anchor** зафиксирована кодом
-`tests/test_degenerate_anchor.py`; отдельный markdown-файл под неё не создавался
-(в более ранней сводке он был заявлен по ошибке) — считайте источником истины тест.
+**Degenerate-anchor specification** is fixed by the code in
+`tests/test_degenerate_anchor.py`; no separate markdown file was created for it
+(an earlier summary mentioned it by mistake) — treat the test as the source of
+truth.
 
-**Порядок следующих шагов** (изменён ADR-006):
-`io/checkpoint.py` → `core/traversal.py` → `stats/error_budget.py` →
-`interpreters/hierarchy.py`. Чекпоинт идёт раньше обхода потому, что `RESUME`
-требует сохранения накопленных улик, а без него WITHDRAW невозможно сделать
-обратимым, не потеряв гарантию.
+**Order of the next steps** (changed by ADR-006): `io/checkpoint.py` →
+`core/traversal.py` → `stats/error_budget.py` → `interpreters/hierarchy.py`.
+Checkpoints come before traversal because `RESUME` requires preserving the
+accumulated evidence, and without it `WITHDRAW` cannot be made reversible
+without losing the guarantee.
 
-**Блокирующий открытый вопрос**: формат envelope чекпоинта и его совместимость с
-`sequential-analysis` (`checkpoint()/restore()`). До его решения traversal не
-пишется.
+**Blocking open question**: the checkpoint envelope format and its compatibility
+with `sequential-analysis` (`checkpoint()/restore()`). Traversal is not written
+until this is settled.
 
-## Установка (когда будет опубликовано)
+## Installation (once published)
 
 ```bash
-pip install sequential-search-core        # только контракты, без upstream
-pip install sequential-search-core[full]  # + адаптеры процедур поверх sequential-analysis
+pip install sequential-search-core        # contracts only, no upstream dependency
+pip install sequential-search-core[full]  # + procedure adapters over sequential-analysis
 ```
 
-Имя `sequential-search` на PyPI может быть занято — резервуем `-core`
-(решение ADR-003, пункт 3), проверяется перед первым релизом.
+The name `sequential-search` on PyPI may already be taken — reserving `-core`
+(ADR-003, item 3), verified before the first release.
 
-## Лицензия
-AGPL-3.0 (совместимо с двойным лицензированием upstream).
+## License
+
+AGPL-3.0 (compatible with the upstream dual licensing).

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sequential-search-core"
 version = "0.0.1"
-description = "Математическое ядро последовательного принятия статистических решений при обходе графа"
+description = "Mathematical kernel for sequential statistical decision-making during graph traversal"
 requires-python = ">=3.11"
 license = { text = "AGPL-3.0-or-later" }
 dependencies = []
