@@ -1,5 +1,9 @@
 # sequential-search
 
+Start with the [plain-language overview](docs/overview.md) for use cases,
+current versus planned capabilities and guarantees. [llms.txt](llms.txt) is a
+curated source index; [AGENTS.md](AGENTS.md) contains development guidance.
+
 Математическое ядро **последовательного принятия статистических решений при
 обходе графа**. Наследует постановку задачи
 [`sequential-analysis`](https://pypi.org/project/sequential-analysis/), но
@@ -17,7 +21,14 @@
 | **Edge** | stopping rule: накопленные улики → решение `accept / reject / pending` | булев предикат (это лишь вырожденный случай) |
 | **Traversal** | политика обхода + глобальный бюджет ошибок (α-риск и ресурс) | цикл `for node in graph` |
 
-## Интерпретации, которые покрывает ядро
+## Design scenarios discussed in the ADRs
+
+The following scenarios are architectural targets and historical discussions,
+not a list of implemented capabilities. In particular, earlier ADRs excluded a
+separate games package; the current ecosystem now distinguishes
+[sequential-games](https://github.com/andre-a-no/sequential-games) for mathematical
+interaction models with independent objectives and coupled asynchronous actions.
+The earlier exclusion below records that earlier scope decision.
 
 1. Каскад фильтров (pipeline, group-sequential).
 2. Адаптивное дерево условий (adaptive sampling).
@@ -58,10 +69,16 @@
     выражаются параметрами узла, adversarial-режим вынесен **за скоуп ядра**.
     См. `docs/ADR-006-resumable-search-and-known-partner.md`.
 
-Прикладные интерпретации живут **не здесь**, а в слое
-`sequentialist-search` (отдельный репозиторий-обвязка).
+Application interpretations belong in `sequentialist-*` packages. Earlier ADRs
+used `sequentialist-search` as a proposed wrapper name; that does not establish
+that such a package or repository is available. `sequentialist-agentic` is an
+existing application integration; domain packages can use search directly.
 
-## Структура пакета
+## Target package structure
+
+This tree includes planned modules. Inspect the actual `src/` files and the
+status section below for implemented APIs; a filename here is not an import
+availability claim.
 
 ```
 src/sequential_search/
@@ -91,7 +108,10 @@ src/sequential_search/
 └── io/              # сериализация, чекпоинты (формат совместим с sequential-analysis)
 ```
 
-## Инварианты ядра
+## Target kernel invariants
+
+These are design requirements. Local contracts and tests establish only their
+documented scope; whole-graph error control remains unimplemented.
 
 1. **Global guarantee**: family-wise error ≤ α по всему обходу, даже если
    политика адаптирует порядок проверок (e-value calibration на рёбрах).
@@ -118,22 +138,33 @@ src/sequential_search/
 в `docs/`.
 
 **Реализовано**: слой 1 (контракты `core/node.py`, `core/edge.py`, `core/graph.py`,
-`policy/base.py`) + адаптер `stats/procedure.py` + degenerate anchor (20 tests,
-зелёные; 8 из них работают без установленного upstream — extra `[core]` автономен).
+`policy/base.py`), адаптер `stats/procedure.py`, degenerate anchor и версионируемый
+формат контрольной точки `io/checkpoint.py`. Он сохраняет граф, улики, frontier,
+состояния рёбер, резервы бюджетов и состояние политики/RNG. `ProcedureNode`
+восстанавливает свой upstream Run и последний результат без сброса улик.
+Контракты и сериализация не требуют установленного upstream; адаптер требует
+`[full]`. Контракт формата и пример кодеков —
+[ADR-007](docs/ADR-007-checkpoint-envelope.md).
+
+**Finite reasoning reference (P0):** `sequential_search.reasoning` adds pure
+forward, backward and checked bidirectional search over a declared finite set of
+positive implication rules. It supports AND premises, OR alternatives, checked
+proof provenance and explicit missing-premise results. Search limits remain
+distinct from exhaustion; search-work cost remains distinct from proof cost.
+This is an additive mathematical reference, not a replacement for experiment
+nodes or a general theorem prover. Contract, example and limits:
+[ADR-008](docs/ADR-008-reasoning-search.md).
 
 **Спецификация degenerate anchor** зафиксирована кодом
 `tests/test_degenerate_anchor.py`; отдельный markdown-файл под неё не создавался
 (в более ранней сводке он был заявлен по ошибке) — считайте источником истины тест.
 
 **Порядок следующих шагов** (изменён ADR-006):
-`io/checkpoint.py` → `core/traversal.py` → `stats/error_budget.py` →
-`interpreters/hierarchy.py`. Чекпоинт идёт раньше обхода потому, что `RESUME`
-требует сохранения накопленных улик, а без него WITHDRAW невозможно сделать
-обратимым, не потеряв гарантию.
-
-**Блокирующий открытый вопрос**: формат envelope чекпоинта и его совместимость с
-`sequential-analysis` (`checkpoint()/restore()`). До его решения traversal не
-пишется.
+`core/traversal.py` → `stats/error_budget.py` → `interpreters/hierarchy.py`.
+Формат envelope и вложение upstream-чекпоинта определены в ADR-007. Сериализация
+сохраняет WITHDRAW и накопленные улики; переход RESUME предстоит реализовать
+в обходе. Корректность повторного возврата и резервирования α пока не доказана:
+сохранение чисел бюджета само по себе не устанавливает global guarantee.
 
 ## Установка (когда будет опубликовано)
 

@@ -1,0 +1,34 @@
+# sequential-search
+
+> Mathematical search abstractions and finite reasoning reference algorithms.
+> Distribution: sequential-search-core. Import: sequential_search. Python 3.11+.
+
+This index describes the current repository checkout. Development reasoning and
+checkpoint APIs may differ from published releases; inspect the selected tag.
+Links provide navigation, not a promise of indexing or automatic AI ingestion.
+
+## Start here
+
+- [Plain-language overview](docs/overview.md): who it is for, choices, inputs/outputs, FAQ and limits.
+- [Обзор на русском](docs/overview.ru.md): назначение, выбор возможностей, входные данные, результаты и ограничения.
+- [README](README.md): status, architectural history and installation.
+- [Coding guidance](AGENTS.md): commands and contribution boundaries.
+
+## Implemented development contracts
+
+- [Finite reasoning](docs/ADR-008-reasoning-search.md): forward/backward/bidirectional search, proofs and missing premises.
+- [Reasoning source](src/sequential_search/reasoning.py): pure finite implication algorithms.
+- [Reasoning tests](tests/test_reasoning.py): checked examples, failure modes and independent truth-table oracle.
+- [Checkpoint envelope](docs/ADR-007-checkpoint-envelope.md): topology, evidence, lifecycle and reservations.
+- [Checkpoint source](src/sequential_search/io/checkpoint.py): explicit codecs and validation.
+- [Statistical procedure adapter](src/sequential_search/stats/procedure.py): integration with sequential-analysis.
+- [SPRT anchor tests](tests/test_degenerate_anchor.py): comparison with standalone inference.
+
+## Design history and unresolved work
+
+- [Kernel boundaries](docs/ADR-003-kernel-scope.md): mathematical responsibilities; includes historical proposals.
+- [Withdrawal and resume](docs/ADR-006-resumable-search-and-known-partner.md): requirements and open alpha-accounting questions.
+
+A verified implication proof is not an automatic subject-domain proof; a
+serialized budget is not a global statistical guarantee. Applications and
+production runtimes belong to the sequentialist engineering/application layers.
